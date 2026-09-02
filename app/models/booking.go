@@ -1,20 +1,23 @@
 package models
 
-import "time"
+import (
+	"time"
+)
 
 // BookingStatus представляет статус бронирования.
 type BookingStatus string
 
 const (
-	BookingStatusAwaitsConfirmation BookingStatus = "awaits_confirmation"
-	BookingStatusConfirmed          BookingStatus = "confirmed"
-	BookingStatusCancelled          BookingStatus = "cancelled"
+	BookingStatusAwaitsConfirmation  BookingStatus = "awaits_confirmation"
+	BookingStatusConfirmed           BookingStatus = "confirmed"
+	BookingStatusCancelled           BookingStatus = "cancelled"
+	BookingStatusCancellationPending BookingStatus = "cancellation_pending"
 )
 
 // IsValid проверяет, что статус принадлежит допустимому множеству.
 func (s BookingStatus) IsValid() bool {
 	switch s {
-	case BookingStatusAwaitsConfirmation, BookingStatusConfirmed, BookingStatusCancelled:
+	case BookingStatusAwaitsConfirmation, BookingStatusConfirmed, BookingStatusCancelled, BookingStatusCancellationPending:
 		return true
 	default:
 		return false
@@ -24,22 +27,26 @@ func (s BookingStatus) IsValid() bool {
 // Booking -- доменная сущность бронирования.
 // Поля неэкспортируемые для обеспечения инкапсуляции.
 type Booking struct {
-	id         int64
-	status     BookingStatus
-	userID     int64
-	resourceID int64
-	startDate  time.Time
-	endDate    time.Time
-	createdAt  time.Time
+	id                 int64
+	status             BookingStatus
+	userID             int64
+	resourceID         int64
+	startDate          time.Time
+	endDate            time.Time
+	createdAt          time.Time
+	previousStatus     BookingStatus
+	cancellationSentAt time.Time
 }
 
-func (b *Booking) ID() int64             { return b.id }
-func (b *Booking) Status() BookingStatus { return b.status }
-func (b *Booking) UserID() int64         { return b.userID }
-func (b *Booking) ResourceID() int64     { return b.resourceID }
-func (b *Booking) StartDate() time.Time  { return b.startDate }
-func (b *Booking) EndDate() time.Time    { return b.endDate }
-func (b *Booking) CreatedAt() time.Time  { return b.createdAt }
+func (b *Booking) ID() int64                     { return b.id }
+func (b *Booking) Status() BookingStatus         { return b.status }
+func (b *Booking) UserID() int64                 { return b.userID }
+func (b *Booking) ResourceID() int64             { return b.resourceID }
+func (b *Booking) StartDate() time.Time          { return b.startDate }
+func (b *Booking) EndDate() time.Time            { return b.endDate }
+func (b *Booking) CreatedAt() time.Time          { return b.createdAt }
+func (b *Booking) PreviousStatus() BookingStatus { return b.previousStatus }
+func (b *Booking) CancellationSentAt() time.Time { return b.cancellationSentAt }
 
 // NewBooking создаёт новое бронирование в статусе AwaitsConfirmation.
 func NewBooking(userID, resourceID int64, startDate, endDate time.Time) (*Booking, error) {
@@ -57,12 +64,14 @@ func NewBooking(userID, resourceID int64, startDate, endDate time.Time) (*Bookin
 	}
 
 	return &Booking{
-		status:     BookingStatusAwaitsConfirmation,
-		userID:     userID,
-		resourceID: resourceID,
-		startDate:  startDate,
-		endDate:    endDate,
-		createdAt:  time.Now(),
+		status:             BookingStatusAwaitsConfirmation,
+		userID:             userID,
+		resourceID:         resourceID,
+		startDate:          startDate,
+		endDate:            endDate,
+		createdAt:          time.Now(),
+		previousStatus:     BookingStatusAwaitsConfirmation,
+		cancellationSentAt: time.Now(),
 	}, nil
 }
 
@@ -102,17 +111,35 @@ func (b *Booking) Cancel(today time.Time) error {
 // Используется только в слое storage для маппинга строк БД на доменный объект.
 func RestoreBooking(
 	id int64,
-	status BookingStatus,
+	status, previousStatus BookingStatus,
 	userID, resourceID int64,
-	startDate, endDate, createdAt time.Time,
+	startDate, endDate, createdAt, cancellationSentAt time.Time,
 ) *Booking {
 	return &Booking{
-		id:         id,
-		status:     status,
-		userID:     userID,
-		resourceID: resourceID,
-		startDate:  startDate,
-		endDate:    endDate,
-		createdAt:  createdAt,
+		id:                 id,
+		status:             status,
+		userID:             userID,
+		resourceID:         resourceID,
+		startDate:          startDate,
+		endDate:            endDate,
+		createdAt:          createdAt,
+		previousStatus:     previousStatus,
+		cancellationSentAt: cancellationSentAt,
 	}
+}
+
+func (b *Booking) StartCancellation(today time.Time) (*Booking, error) {
+	if !b.startDate.After(today) {
+		return &Booking{}, ErrCannotCancelPastBooking
+	}
+	return &Booking{
+		status:             BookingStatusCancellationPending,
+		cancellationSentAt: today,
+	}, nil
+}
+func (b *Booking) RollbackCancellation() (*Booking, error) {
+
+	return &Booking{
+		status: b.previousStatus,
+	}, nil
 }
