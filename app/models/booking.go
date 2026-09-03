@@ -143,13 +143,12 @@ func (b *Booking) StartCancellation(today time.Time) error {
 		b.previousStatus = b.status
 		b.status = BookingStatusCancellationPending
 		b.cancellationSentAt = &today
-	case BookingStatusCancelled, BookingStatusCancellationPending:
-		return ErrInvalidStatusTransition
 	default:
 		return ErrInvalidStatusTransition
 	}
 	return nil
 }
+
 func (b *Booking) CompleteCancellation() error {
 	if b.status != BookingStatusCancellationPending {
 		return ErrInvalidStatusTransition
