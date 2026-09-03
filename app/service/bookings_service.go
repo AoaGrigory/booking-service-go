@@ -144,7 +144,7 @@ func (s *BookingsService) HandleCancelError(ctx context.Context, requestID strin
 		return fmt.Errorf("роллбэк: %w", err)
 	}
 	if err := s.repo.Update(ctx, booking); err != nil {
-		return fmt.Errorf("обновление при роллбэке: %w", err)
+		return fmt.Errorf("обновление при rollback: %w", err)
 	}
 
 	return nil
