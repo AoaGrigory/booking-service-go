@@ -92,7 +92,6 @@ func (s *BookingsService) Cancel(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	// Здесь надо перехватить ошибку и статус cancellation_pending(наверно)
 	if err := booking.StartCancellation(time.Now()); err != nil {
 		return err
 	}
