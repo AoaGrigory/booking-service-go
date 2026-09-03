@@ -130,11 +130,12 @@ func (s *BookingsService) Confirm(ctx context.Context, id int64) error {
 	return nil
 }
 
+// HandleCancelError запускает роллбэк статуса
 func (s *BookingsService) HandleCancelError(ctx context.Context, requestID string) error {
 	bookingId, err := messaging.RequestIDToBookingID(requestID)
 	if err != nil {
 		s.logger.Warn("некорректный requestID", zap.String("requestID", requestID))
-		return fmt.Errorf("некорректный requestID %s: , %w", requestID, err)
+		return fmt.Errorf("некорректный requestID %s: %w", requestID, err)
 	}
 	booking, err := s.repo.GetByID(ctx, bookingId)
 	if err != nil {
@@ -154,18 +155,21 @@ func (s *BookingsService) HandleCancelError(ctx context.Context, requestID strin
 	return nil
 }
 
+// CompleteCancellation завершает отмену: cancellation_pending -> cancelled
 func (s *BookingsService) CompleteCancellation(ctx context.Context, id int64) error {
-
 	booking, err := s.repo.GetByID(ctx, id)
 	if err != nil {
-		return err
+		return fmt.Errorf("получение бронирования при завершении отмены %d: %w", id, err)
 	}
 	if err := booking.CompleteCancellation(); err != nil {
-		return err
+		return fmt.Errorf("завершение отмены бронирования %d: %w", id, err)
 	}
 	if err := s.repo.Update(ctx, booking); err != nil {
 		return fmt.Errorf("обновление при отмене: %w", err)
 	}
+	s.logger.Info("успешная отмена, статус изменен",
+		zap.Int64("id", id),
+		zap.String("status", string(booking.Status())))
 
 	return nil
 }
