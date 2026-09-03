@@ -13,8 +13,8 @@ const (
 
 	queryUpdateBookingStatus = `
 		UPDATE bookings
-		SET status = $1
-		previous_status = $2
+		SET status = $1,
+		previous_status = $2,
 		cancellation_sent_at = $3
 		WHERE id = $4`
 

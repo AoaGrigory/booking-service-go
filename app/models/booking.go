@@ -114,7 +114,9 @@ func RestoreBooking(
 	id int64,
 	status, previousStatus BookingStatus,
 	userID, resourceID int64,
-	startDate, endDate, createdAt, cancellationSentAt time.Time,
+	startDate, endDate, createdAt time.Time,
+	cancellationSentAt *time.Time,
+
 ) *Booking {
 	return &Booking{
 		id:                 id,
@@ -125,7 +127,7 @@ func RestoreBooking(
 		endDate:            endDate,
 		createdAt:          createdAt,
 		previousStatus:     previousStatus,
-		cancellationSentAt: &cancellationSentAt,
+		cancellationSentAt: cancellationSentAt,
 	}
 }
 
