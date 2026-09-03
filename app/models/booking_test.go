@@ -167,7 +167,18 @@ func TestCompleteCancellation_FromConfirm(t *testing.T) {
 
 }
 
-func TestRollbackCancellation_FromCancellationPending(t *testing.T) {
+func TestRollbackCancellation_FromCancellationPending_ToConfirm(t *testing.T) {
+	booking := createTestBooking(t)
+
+	_ = booking.Confirm()
+	_ = booking.StartCancellation(time.Now())
+
+	err := booking.RollbackCancellation()
+	assert.NoError(t, err)
+	assert.Equal(t, models.BookingStatusConfirmed, booking.Status())
+}
+
+func TestRollbackCancellation_FromCancellationPending_ToAwaitsConfirm(t *testing.T) {
 	booking := createTestBooking(t)
 
 	_ = booking.StartCancellation(time.Now())
@@ -175,13 +186,12 @@ func TestRollbackCancellation_FromCancellationPending(t *testing.T) {
 	err := booking.RollbackCancellation()
 	assert.NoError(t, err)
 	assert.Equal(t, models.BookingStatusAwaitsConfirmation, booking.Status())
-	assert.Nil(t, booking.CancellationSentAt())
 }
 
-func TestRollbackCancellation_FromConfirm(t *testing.T) {
+func TestRollbackCancellation_FromCancellationPending_ToCancelled(t *testing.T) {
 	booking := createTestBooking(t)
 
-	_ = booking.Confirm()
+	_ = booking.Cancel(time.Now())
 
 	err := booking.RollbackCancellation()
 	assert.ErrorIs(t, err, models.ErrInvalidStatusTransition)

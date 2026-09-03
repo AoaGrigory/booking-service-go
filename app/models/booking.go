@@ -116,7 +116,6 @@ func RestoreBooking(
 	userID, resourceID int64,
 	startDate, endDate, createdAt time.Time,
 	cancellationSentAt *time.Time,
-
 ) *Booking {
 	return &Booking{
 		id:                 id,
