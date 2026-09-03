@@ -9,7 +9,7 @@ up:
 	docker compose -f $(COMPOSE_FILE) up -d --build
 
 tests:
-	go test ./... | grep -v "no test files"
+	go test ./...
 
 coverage:
 	go test -coverprofile=coverage.out ./...
