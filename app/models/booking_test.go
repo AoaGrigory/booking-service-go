@@ -189,10 +189,18 @@ func TestRollbackCancellation_FromCancellationPending_ToAwaitsConfirm(t *testing
 }
 
 func TestRollbackCancellation_FromCancellationPending_ToCancelled(t *testing.T) {
-	booking := createTestBooking(t)
+	b := models.RestoreBooking(
+		1,
+		models.BookingStatusCancellationPending,
+		"",
+		1,
+		10,
+		time.Now().AddDate(0, 0, -3),
+		time.Now().AddDate(0, 0, -1),
+		time.Now().AddDate(0, 0, -5),
+		nil,
+	)
 
-	_ = booking.Cancel(time.Now())
-
-	err := booking.RollbackCancellation()
+	err := b.RollbackCancellation()
 	assert.ErrorIs(t, err, models.ErrInvalidStatusTransition)
 }
