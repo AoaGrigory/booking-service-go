@@ -32,6 +32,8 @@ func (r *BookingsRepository) Create(ctx context.Context, booking *models.Booking
 		booking.StartDate(),
 		booking.EndDate(),
 		booking.CreatedAt(),
+		booking.PreviousStatus(),
+		booking.CancellationSentAt(),
 	).Scan(&id)
 
 	if err != nil {
@@ -138,13 +140,15 @@ func (r *BookingsRepository) GetAwaitingConfirmation(ctx context.Context, limit 
 // scanBooking сканирует одну строку в доменный объект Booking.
 func (r *BookingsRepository) scanBooking(row pgx.Row) (*models.Booking, error) {
 	var (
-		id         int64
-		status     string
-		userID     int64
-		resourceID int64
-		startDate  time.Time
-		endDate    time.Time
-		createdAt  time.Time
+		id                 int64
+		status             string
+		userID             int64
+		resourceID         int64
+		startDate          time.Time
+		endDate            time.Time
+		createdAt          time.Time
+		previousStatus     string
+		cancellationSentAt time.Time
 	)
 
 	err := row.Scan(&id, &status, &userID, &resourceID, &startDate, &endDate, &createdAt)
@@ -152,19 +156,21 @@ func (r *BookingsRepository) scanBooking(row pgx.Row) (*models.Booking, error) {
 		return nil, err
 	}
 
-	return models.RestoreBooking(id, models.BookingStatus(status), userID, resourceID, startDate, endDate, createdAt), nil
+	return models.RestoreBooking(id, models.BookingStatus(status), models.BookingStatus(previousStatus), userID, resourceID, startDate, endDate, createdAt, cancellationSentAt), nil
 }
 
 // scanBookingFromRows сканирует строку из pgx.Rows.
 func (r *BookingsRepository) scanBookingFromRows(rows pgx.Rows) (*models.Booking, error) {
 	var (
-		id         int64
-		status     string
-		userID     int64
-		resourceID int64
-		startDate  time.Time
-		endDate    time.Time
-		createdAt  time.Time
+		id                 int64
+		status             string
+		userID             int64
+		resourceID         int64
+		startDate          time.Time
+		endDate            time.Time
+		createdAt          time.Time
+		previousStatus     string
+		cancellationSentAt time.Time
 	)
 
 	err := rows.Scan(&id, &status, &userID, &resourceID, &startDate, &endDate, &createdAt)
@@ -172,5 +178,5 @@ func (r *BookingsRepository) scanBookingFromRows(rows pgx.Rows) (*models.Booking
 		return nil, err
 	}
 
-	return models.RestoreBooking(id, models.BookingStatus(status), userID, resourceID, startDate, endDate, createdAt), nil
+	return models.RestoreBooking(id, models.BookingStatus(status), models.BookingStatus(previousStatus), userID, resourceID, startDate, endDate, createdAt, cancellationSentAt), nil
 }
