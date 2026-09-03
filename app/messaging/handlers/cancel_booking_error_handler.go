@@ -23,12 +23,14 @@ func NewBookingErrorHandler(svc *service.BookingsService, logger *zap.Logger) *B
 func (h *BookingErrorHandler) Handle(ctx context.Context, body []byte) error {
 	var event messaging.CancelBookingJobCommand
 	if err := json.Unmarshal(body, &event); err != nil {
-		return fmt.Errorf("десериализацияBookingErrorHandler: %w", err)
+		return fmt.Errorf("десериализация BookingErrorHandler: %w", err)
 	}
 
 	if err := h.service.HandleCancelError(ctx, event.RequestId); err != nil {
 		return fmt.Errorf("rollback бронирования %s: %w", event.RequestId, err)
 	}
+	h.logger.Info("получено сообщение об ошибке отмены",
+		zap.String("requsetId", event.RequestId))
 
 	return nil
 

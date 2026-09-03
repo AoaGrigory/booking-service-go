@@ -93,27 +93,12 @@ func (s *BookingsService) Cancel(ctx context.Context, id int64) error {
 		return err
 	}
 	// Здесь надо перехватить ошибку и статус cancellation_pending(наверно)
-	if _, err := booking.StartCancellation(time.Now()); err != nil {
+	if err := booking.StartCancellation(time.Now()); err != nil {
 		return err
 	}
 	if err := s.repo.Update(ctx, booking); err != nil {
 		return fmt.Errorf("обновление бронирования: %w", err)
 	}
-
-	if err := s.publisher.PublishCancelBookingJob(ctx, messaging.CancelBookingJobCommand{
-		EventId:   messaging.NewMessageID(),
-		RequestId: messaging.BookingIDToRequestID(id),
-	}); err != nil {
-		s.logger.Error("ошибка публикации CancelBookingJob", zap.Error(err), zap.Int64("bookingId", id))
-	}
-
-	if err := booking.Cancel(time.Now()); err != nil {
-		return err
-	}
-	if err := s.repo.Update(ctx, booking); err != nil {
-		return fmt.Errorf("обновление бронирования: %w", err)
-	}
-	s.logger.Info("бронирование отменено", zap.Int64("id", id))
 
 	if err := s.publisher.PublishCancelBookingJob(ctx, messaging.CancelBookingJobCommand{
 		EventId:   messaging.NewMessageID(),
@@ -156,8 +141,11 @@ func (s *BookingsService) HandleCancelError(ctx context.Context, requestID strin
 		return err
 	}
 
-	if _, err := booking.RollbackCancellation(); err != nil {
-		return err
+	if err := booking.RollbackCancellation(); err != nil {
+		return fmt.Errorf("роллбэк: %w", err)
+	}
+	if err := s.repo.Update(ctx, booking); err != nil {
+		return fmt.Errorf("обновление при роллбэке: %w", err)
 	}
 
 	return nil

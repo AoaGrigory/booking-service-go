@@ -2,12 +2,12 @@ package postgres
 
 const (
 	queryInsertBooking = `
-		INSERT INTO bookings (status, user_id, resource_id, start_date, end_date, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO bookings (status, user_id, resource_id, start_date, end_date, created_at, previousStatus, cancellationSentAt)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id`
 
 	queryGetBookingByID = `
-		SELECT id, status, user_id, resource_id, start_date, end_date, created_at
+		SELECT id, status, user_id, resource_id, start_date, end_date, created_at, previousStatus, cancellationSentAt
 		FROM bookings
 		WHERE id = $1`
 

@@ -90,7 +90,7 @@ func main() {
 	consumer := messaging.NewConsumer(mqConn, cfg.RabbitMQ.ExchangeName, cfg.RabbitMQ.QueuePrefix, logger)
 	consumer.Subscribe(messaging.QueueSuffixBookingJobConfirmed, messaging.RoutingKeyBookingJobConfirmed, confirmedHandler.Handle)
 	consumer.Subscribe(messaging.QueueSuffixBookingJobDenied, messaging.RoutingKeyBookingJobDenied, deniedHandler.Handle)
-	consumer.Subscribe(messaging.QueueSuffixBookingJobDenied, messaging.RoutingKeyBookingJobDenied, rollbackHandler.Handle)
+	consumer.Subscribe(messaging.QueueSuffixBookingRollback, messaging.RoutingKeyBookingJobDenied, rollbackHandler.Handle)
 	if err := consumer.Start(ctx); err != nil {
 		logger.Error("не удалось запустить consumer", zap.Error(err))
 		os.Exit(1)

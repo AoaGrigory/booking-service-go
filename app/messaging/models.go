@@ -51,6 +51,7 @@ const (
 const (
 	QueueSuffixBookingJobConfirmed = "booking-job.confirmed"
 	QueueSuffixBookingJobDenied    = "booking-job.denied"
+	QueueSuffixBookingRollback     = "booking-job.rollback"
 )
 
 // Routing keys и типы для исходящих команд в Catalog (publisher side, Rebus convention).
