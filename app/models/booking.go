@@ -100,11 +100,6 @@ func (b *Booking) Cancel(today time.Time) error {
 		if !b.startDate.After(today) {
 			return ErrCannotCancelPastBooking
 		}
-		if err := b.StartCancellation(today); err != nil {
-			return err
-		}
-		return nil
-	case BookingStatusCancellationPending:
 		b.status = BookingStatusCancelled
 		return nil
 	case BookingStatusCancelled:
@@ -136,15 +131,35 @@ func RestoreBooking(
 }
 
 func (b *Booking) StartCancellation(today time.Time) error {
-	if !b.startDate.After(today) {
-		return ErrCannotCancelPastBooking
+	switch b.status {
+	case BookingStatusAwaitsConfirmation:
+		b.previousStatus = b.status
+		b.status = BookingStatusCancellationPending
+		b.cancellationSentAt = &today
+	case BookingStatusConfirmed:
+		if !b.startDate.After(today) {
+			return ErrCannotCancelPastBooking
+		}
+		b.previousStatus = b.status
+		b.status = BookingStatusCancellationPending
+		b.cancellationSentAt = &today
+	case BookingStatusCancelled, BookingStatusCancellationPending:
+		return ErrInvalidStatusTransition
+	default:
+		return ErrInvalidStatusTransition
 	}
-	b.previousStatus = b.status
-	b.status = BookingStatusCancellationPending
-	b.cancellationSentAt = &today
-
 	return nil
 }
+func (b *Booking) CompleteCancellation() error {
+	if b.status != BookingStatusCancellationPending {
+		return ErrInvalidStatusTransition
+	}
+	b.status = BookingStatusCancelled
+	b.previousStatus = ""
+	b.cancellationSentAt = nil
+	return nil
+}
+
 func (b *Booking) RollbackCancellation() error {
 	if b.status != BookingStatusCancellationPending {
 		return ErrInvalidStatusTransition
