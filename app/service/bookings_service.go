@@ -133,6 +133,7 @@ func (s *BookingsService) Confirm(ctx context.Context, id int64) error {
 func (s *BookingsService) HandleCancelError(ctx context.Context, requestID string) error {
 	bookingId, err := messaging.RequestIDToBookingID(requestID)
 	if err != nil {
+		// добавить лог
 		return err
 	}
 	booking, err := s.repo.GetByID(ctx, bookingId)
@@ -145,6 +146,20 @@ func (s *BookingsService) HandleCancelError(ctx context.Context, requestID strin
 	}
 	if err := s.repo.Update(ctx, booking); err != nil {
 		return fmt.Errorf("обновление при роллбэке: %w", err)
+	}
+
+	return nil
+}
+
+// добавить ConfirmCancellation
+func (s *BookingsService) CompleteCancellation(ctx context.Context, id int64) error {
+
+	booking, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := booking.CompleteCancellation(); err != nil {
+		return err
 	}
 
 	return nil
