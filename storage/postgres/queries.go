@@ -14,7 +14,9 @@ const (
 	queryUpdateBookingStatus = `
 		UPDATE bookings
 		SET status = $1
-		WHERE id = $2`
+		previous_status = $2
+		cancellation_sent_at = $3
+		WHERE id = $4`
 
 	queryGetBookingsByFilter = `
 		SELECT id, status, user_id, resource_id, start_date, end_date, created_at, previous_status, cancellation_sent_at

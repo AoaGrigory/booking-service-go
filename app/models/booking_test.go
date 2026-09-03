@@ -110,3 +110,76 @@ func createTestBooking(t *testing.T) *models.Booking {
 	require.NoError(t, err)
 	return b
 }
+func TestStartCancellation_FromAwaitsConfirm(t *testing.T) {
+	booking := createTestBooking(t)
+
+	err := booking.StartCancellation(time.Now())
+
+	require.NoError(t, err)
+	assert.Equal(t, models.BookingStatusCancellationPending, booking.Status())
+}
+
+func TestStartCancellation_FromCancel(t *testing.T) {
+	booking := createTestBooking(t)
+	_ = booking.Cancel(time.Now())
+
+	err := booking.StartCancellation(time.Now())
+	assert.ErrorIs(t, err, models.ErrInvalidStatusTransition)
+}
+
+func TestStartCancellation_FromConfirm(t *testing.T) {
+	booking := createTestBooking(t)
+
+	err := booking.StartCancellation(time.Now())
+
+	require.NoError(t, err)
+	assert.Equal(t, models.BookingStatusCancellationPending, booking.Status())
+}
+
+func TestCompleteCancellation_FromCancellationPending(t *testing.T) {
+	booking := createTestBooking(t)
+	_ = booking.StartCancellation(time.Now())
+
+	err := booking.CompleteCancellation()
+
+	require.NoError(t, err)
+	assert.Equal(t, models.BookingStatusCancelled, booking.Status())
+
+}
+
+func TestCompleteCancellation_FromAwaitsConfirm(t *testing.T) {
+	booking := createTestBooking(t)
+
+	err := booking.CompleteCancellation()
+
+	assert.ErrorIs(t, err, models.ErrInvalidStatusTransition)
+
+}
+func TestCompleteCancellation_FromConfirm(t *testing.T) {
+	booking := createTestBooking(t)
+	_ = booking.Confirm()
+
+	err := booking.CompleteCancellation()
+
+	assert.ErrorIs(t, err, models.ErrInvalidStatusTransition)
+
+}
+
+func TestRollbackCancellation_FromCancellationPending(t *testing.T) {
+	booking := createTestBooking(t)
+
+	_ = booking.StartCancellation(time.Now())
+
+	err := booking.RollbackCancellation()
+	assert.NoError(t, err)
+	assert.Equal(t, booking.PreviousStatus(), booking.Status())
+}
+
+func TestRollbackCancellation_FromConfirm(t *testing.T) {
+	booking := createTestBooking(t)
+
+	_ = booking.Confirm()
+
+	err := booking.RollbackCancellation()
+	assert.ErrorIs(t, err, models.ErrInvalidStatusTransition)
+}
