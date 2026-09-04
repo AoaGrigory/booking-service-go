@@ -97,15 +97,9 @@ func (b *Booking) Cancel(today time.Time) error {
 		}
 		return nil
 	case BookingStatusConfirmed:
-		if !b.startDate.After(today) {
-			return ErrCannotCancelPastBooking
-		}
 		if err := b.StartCancellation(today); err != nil {
 			return err
 		}
-		return nil
-	case BookingStatusCancellationPending:
-		b.status = BookingStatusCancelled
 		return nil
 	case BookingStatusCancelled:
 		return ErrInvalidStatusTransition
@@ -120,7 +114,8 @@ func RestoreBooking(
 	id int64,
 	status, previousStatus BookingStatus,
 	userID, resourceID int64,
-	startDate, endDate, createdAt, cancellationSentAt time.Time,
+	startDate, endDate, createdAt time.Time,
+	cancellationSentAt *time.Time,
 ) *Booking {
 	return &Booking{
 		id:                 id,
@@ -131,20 +126,44 @@ func RestoreBooking(
 		endDate:            endDate,
 		createdAt:          createdAt,
 		previousStatus:     previousStatus,
-		cancellationSentAt: &cancellationSentAt,
+		cancellationSentAt: cancellationSentAt,
 	}
 }
 
+// StartCancellation начинает отмену бронирования
+// awaits_confirmation -> cancellation_pending
+// confirmed -> cancellation_pending
 func (b *Booking) StartCancellation(today time.Time) error {
-	if !b.startDate.After(today) {
-		return ErrCannotCancelPastBooking
+	switch b.status {
+	case BookingStatusAwaitsConfirmation:
+		b.previousStatus = b.status
+		b.status = BookingStatusCancellationPending
+		b.cancellationSentAt = &today
+	case BookingStatusConfirmed:
+		if !b.startDate.After(today) {
+			return ErrCannotCancelPastBooking
+		}
+		b.previousStatus = b.status
+		b.status = BookingStatusCancellationPending
+		b.cancellationSentAt = &today
+	default:
+		return ErrInvalidStatusTransition
 	}
-	b.previousStatus = b.status
-	b.status = BookingStatusCancellationPending
-	b.cancellationSentAt = &today
-
 	return nil
 }
+
+// CompleteCancellation переводит бронирование cancellation_pending -> cancelled
+func (b *Booking) CompleteCancellation() error {
+	if b.status != BookingStatusCancellationPending {
+		return ErrInvalidStatusTransition
+	}
+	b.status = BookingStatusCancelled
+	b.previousStatus = ""
+	b.cancellationSentAt = nil
+	return nil
+}
+
+// RollbackCancellation при ошибке возвращает предыдущий статус
 func (b *Booking) RollbackCancellation() error {
 	if b.status != BookingStatusCancellationPending {
 		return ErrInvalidStatusTransition
