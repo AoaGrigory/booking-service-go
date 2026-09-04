@@ -158,16 +158,16 @@ func (r *BookingsRepository) scanBooking(row pgx.Row) (*models.Booking, error) {
 		previousStatus     *string
 		cancellationSentAt *time.Time
 	)
-	var ps models.BookingStatus
-	if previousStatus != nil {
-		ps = models.BookingStatus(*previousStatus)
-	}
 
-	err := row.Scan(&id, &status, &userID, &resourceID, &startDate, &endDate, &createdAt, &ps, &cancellationSentAt)
+	err := row.Scan(&id, &status, &userID, &resourceID, &startDate, &endDate, &createdAt, &previousStatus, &cancellationSentAt)
 	if err != nil {
 		return nil, err
 	}
 
+	var ps models.BookingStatus
+	if previousStatus != nil {
+		ps = models.BookingStatus(*previousStatus)
+	}
 	return models.RestoreBooking(id, models.BookingStatus(status), ps, userID, resourceID, startDate, endDate, createdAt, cancellationSentAt), nil
 }
 
@@ -184,14 +184,15 @@ func (r *BookingsRepository) scanBookingFromRows(rows pgx.Rows) (*models.Booking
 		previousStatus     *string
 		cancellationSentAt *time.Time
 	)
+
+	err := rows.Scan(&id, &status, &userID, &resourceID, &startDate, &endDate, &createdAt, &previousStatus, &cancellationSentAt)
+	if err != nil {
+		return nil, err
+	}
+
 	var ps models.BookingStatus
 	if previousStatus != nil {
 		ps = models.BookingStatus(*previousStatus)
-	}
-
-	err := rows.Scan(&id, &status, &userID, &resourceID, &startDate, &endDate, &createdAt, &ps, &cancellationSentAt)
-	if err != nil {
-		return nil, err
 	}
 
 	return models.RestoreBooking(id, models.BookingStatus(status), ps, userID, resourceID, startDate, endDate, createdAt, cancellationSentAt), nil

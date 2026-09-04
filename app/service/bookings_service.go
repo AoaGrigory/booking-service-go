@@ -134,7 +134,6 @@ func (s *BookingsService) Confirm(ctx context.Context, id int64) error {
 func (s *BookingsService) HandleCancelError(ctx context.Context, requestID string) error {
 	bookingId, err := messaging.RequestIDToBookingID(requestID)
 	if err != nil {
-		s.logger.Warn("некорректный requestID", zap.String("requestID", requestID))
 		return fmt.Errorf("некорректный requestID %s: %w", requestID, err)
 	}
 	booking, err := s.repo.GetByID(ctx, bookingId)
