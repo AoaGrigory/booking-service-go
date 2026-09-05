@@ -1,7 +1,6 @@
 package postgres
 
 import (
-	"booking-service/app/api/dto"
 	"context"
 	"errors"
 	"fmt"
@@ -151,7 +150,7 @@ func (r *BookingsRepository) GetOrdersPerPeriod(ctx context.Context, dateFrom, d
 	row := r.pool.QueryRow(ctx, queryGetCountOrdersBetweenPeriod, dateFrom, dateTo)
 	var count int64
 	if err := row.Scan(&count); err != nil {
-		return 0, err
+		return 0, fmt.Errorf("подсчет бронирований за период: %w", err)
 	}
 
 	return count, nil
@@ -176,28 +175,34 @@ func (r *BookingsRepository) GetOrdersByStatus(ctx context.Context, dateFrom, da
 		var count int64
 
 		if err := rows.Scan(&statusName, &count); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("итерация статистики по статусам: %w", err)
 		}
 		status[statusName] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("итерация статистики по статусам: %w", err)
 	}
 	return status, nil
 }
 
-func (r *BookingsRepository) GetOrdersTopFiveResource(ctx context.Context, dateFrom, dateTo time.Time) ([]dto.TopResources, error) {
+func (r *BookingsRepository) GetOrdersTopFiveResource(ctx context.Context, dateFrom, dateTo time.Time) ([]models.ResourceBookingStats, error) {
 	rows, err := r.pool.Query(ctx, queryGetTopFiveResource, dateFrom, dateTo)
 	if err != nil {
-		return nil, fmt.Errorf("проверка топ5 ресурсов: %w", err)
+		return nil, fmt.Errorf("проверка топ 5 ресурсов: %w", err)
 	}
 	defer rows.Close()
 
-	var topFive []dto.TopResources
+	var topFive []models.ResourceBookingStats
 
 	for rows.Next() {
-		var resource dto.TopResources
+		var resource models.ResourceBookingStats
 		if err := rows.Scan(&resource.ResourceID, &resource.BookingCount); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("итерация статистики по топ 5 ресурсам: %w", err)
 		}
 		topFive = append(topFive, resource)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("итерация статистики по топ 5 ресурсам: %w", err)
 	}
 
 	return topFive, nil

@@ -37,11 +37,13 @@ type BookingStatistic struct {
 	DateTo          time.Time        `json:"dateTo"`
 	CountOrders     int64            `json:"countOrders"`
 	StatusStatistic map[string]int64 `json:"statusStatistic"`
-	TopFive         []TopResources   `json:"topFive"`
+	TopFive         []TopResource    `json:"topFive"`
 }
 
-type TopResources struct {
-	ResourceID   int64 `json:"resourceID"`
+// TopResource -- содержит id ресурса и
+// количество броней с этим ресурсом
+type TopResource struct {
+	ResourceID   int64 `json:"resourceId"`
 	BookingCount int64 `json:"bookingCount"`
 }
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -132,24 +131,24 @@ func (h *BookingsHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 
 // GetStatistics обрабатывает GET /api/bookings/statistics/{dateFrom}/{dateTo}
 func (h *BookingsHandler) GetStatistics(w http.ResponseWriter, r *http.Request) {
-	dateFrom, err := parseDateFrom(r)
+	dateFrom, err := parseDateParam(r, "dateFrom")
 	if err != nil {
 		writeProblemDetails(w, http.StatusBadRequest, "Некорректная дата", err.Error())
 		return
 	}
-	dateTo, err := parseDateTo(r)
+	dateTo, err := parseDateParam(r, "dateTo")
 	if err != nil {
 		writeProblemDetails(w, http.StatusBadRequest, "Некорректная дата", err.Error())
 		return
 	}
 	if dateFrom.After(dateTo) {
-		fmt.Errorf("dateTo не может быть раньше dateFrom")
-		fmt.Errorf("dateTo не может быть раньше dateFrom")
+		writeProblemDetails(w, http.StatusBadRequest, "Некорректный диапазон дат", "dateTo не может быть раньще dateFrom")
 		return
 	}
 	statistic, err := h.queries.GetStatistic(r.Context(), dateFrom, dateTo)
 	if err != nil {
 		h.handleServiceError(w, err)
+		return
 	}
 
 	writeJSON(w, http.StatusOK, statistic)
@@ -178,22 +177,13 @@ func (h *BookingsHandler) handleServiceError(w http.ResponseWriter, err error) {
 
 // Вспомогательные функции
 
-func parseDateFrom(r *http.Request) (time.Time, error) {
-	dateFromStr := r.URL.Query().Get("dateFrom")
-	dateFrom, err := time.Parse("2006-01-02", dateFromStr)
+func parseDateParam(r *http.Request, paramName string) (time.Time, error) {
+	dateFromStr := r.URL.Query().Get(paramName)
+	dateParam, err := time.Parse(dto.DateFormat, dateFromStr)
 	if err != nil {
 		return time.Time{}, err
 	}
-	return dateFrom, nil
-}
-
-func parseDateTo(r *http.Request) (time.Time, error) {
-	dateToStr := r.URL.Query().Get("dateTo")
-	dateTo, err := time.Parse("2006-01-02", dateToStr)
-	if err != nil {
-		return time.Time{}, err
-	}
-	return dateTo, nil
+	return dateParam, nil
 }
 
 func parseIDParam(r *http.Request) (int64, error) {
