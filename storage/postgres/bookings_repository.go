@@ -186,7 +186,7 @@ func (r *BookingsRepository) GetOrdersByStatus(ctx context.Context, dateFrom, da
 func (r *BookingsRepository) GetOrdersTopFiveResource(ctx context.Context, dateFrom, dateTo time.Time) ([]dto.TopResources, error) {
 	rows, err := r.pool.Query(ctx, queryGetTopFiveResource, dateFrom, dateTo)
 	if err != nil {
-		return nil, fmt.Errorf("проверка топ ресурсов: %w", err)
+		return nil, fmt.Errorf("проверка топ5 ресурсов: %w", err)
 	}
 	defer rows.Close()
 
