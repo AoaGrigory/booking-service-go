@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
@@ -25,6 +27,7 @@ type BookingQueries interface {
 	GetByID(ctx context.Context, id int64) (dto.BookingResponse, error)
 	GetByFilter(ctx context.Context, req dto.GetBookingsByFilterRequest) (dto.PagedResponse[dto.BookingResponse], error)
 	GetStatus(ctx context.Context, id int64) (models.BookingStatus, error)
+	GetStatistic(ctx context.Context, dateFrom, dateTo time.Time) (dto.BookingStatistic, error)
 }
 
 // BookingsHandler содержит обработчики HTTP-запросов для бронирований.
@@ -127,6 +130,32 @@ func (h *BookingsHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, dto.BookingStatusResponse{Status: string(status)})
 }
 
+// GetStatistics обрабатывает GET /api/bookings/statistics/{dateFrom}/{dateTo}
+func (h *BookingsHandler) GetStatistics(w http.ResponseWriter, r *http.Request) {
+	dateFrom, err := parseDateFrom(r)
+	if err != nil {
+		writeProblemDetails(w, http.StatusBadRequest, "Некорректная дата", err.Error())
+		return
+	}
+	dateTo, err := parseDateTo(r)
+	if err != nil {
+		writeProblemDetails(w, http.StatusBadRequest, "Некорректная дата", err.Error())
+		return
+	}
+	if dateFrom.After(dateTo) {
+		fmt.Errorf("dateTo не может быть раньше dateFrom")
+		fmt.Errorf("dateTo не может быть раньше dateFrom")
+		return
+	}
+	statistic, err := h.queries.GetStatistic(r.Context(), dateFrom, dateTo)
+	if err != nil {
+		h.handleServiceError(w, err)
+	}
+
+	writeJSON(w, http.StatusOK, statistic)
+
+}
+
 // handleServiceError маппит доменные ошибки на HTTP-ответы.
 func (h *BookingsHandler) handleServiceError(w http.ResponseWriter, err error) {
 	switch {
@@ -148,6 +177,24 @@ func (h *BookingsHandler) handleServiceError(w http.ResponseWriter, err error) {
 }
 
 // Вспомогательные функции
+
+func parseDateFrom(r *http.Request) (time.Time, error) {
+	dateFromStr := r.URL.Query().Get("dateFrom")
+	dateFrom, err := time.Parse("2006-01-02", dateFromStr)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return dateFrom, nil
+}
+
+func parseDateTo(r *http.Request) (time.Time, error) {
+	dateToStr := r.URL.Query().Get("dateTo")
+	dateTo, err := time.Parse("2006-01-02", dateToStr)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return dateTo, nil
+}
 
 func parseIDParam(r *http.Request) (int64, error) {
 	idStr := chi.URLParam(r, "id")

@@ -1,12 +1,13 @@
 package postgres
 
 import (
+	"booking-service/app/api/dto"
 	"context"
 	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"booking-service/app/models"
@@ -143,6 +144,64 @@ func (r *BookingsRepository) GetAwaitingConfirmation(ctx context.Context, limit 
 	}
 
 	return bookings, rows.Err()
+}
+
+// GetOrdersPerPeriod возвращает количество броней с dateFrom по dateTo
+func (r *BookingsRepository) GetOrdersPerPeriod(ctx context.Context, dateFrom, dateTo time.Time) (int64, error) {
+	row := r.pool.QueryRow(ctx, queryGetCountOrdersBetweenPeriod, dateFrom, dateTo)
+	var count int64
+	if err := row.Scan(&count); err != nil {
+		return 0, err
+	}
+
+	return count, nil
+}
+
+// GetOrdersByStatus возвращает статусы и количество броней с этими статусами с dateFrom по dateTo
+func (r *BookingsRepository) GetOrdersByStatus(ctx context.Context, dateFrom, dateTo time.Time) (map[string]int64, error) {
+	rows, err := r.pool.Query(ctx, queryGetStatusInfo, dateFrom, dateTo)
+	if err != nil {
+		return nil, fmt.Errorf("проверка статуса: %w", err)
+	}
+	defer rows.Close()
+
+	status := map[string]int64{
+		string(models.BookingStatusAwaitsConfirmation):  0,
+		string(models.BookingStatusConfirmed):           0,
+		string(models.BookingStatusCancelled):           0,
+		string(models.BookingStatusCancellationPending): 0,
+	}
+	for rows.Next() {
+		var statusName string
+		var count int64
+
+		if err := rows.Scan(&statusName, &count); err != nil {
+			return nil, err
+		}
+		status[statusName] = count
+	}
+	return status, nil
+}
+
+func (r *BookingsRepository) GetOrdersTopFiveResource(ctx context.Context, dateFrom, dateTo time.Time) ([]dto.TopResources, error) {
+	rows, err := r.pool.Query(ctx, queryGetTopFiveResource, dateFrom, dateTo)
+	if err != nil {
+		return nil, fmt.Errorf("проверка топ ресурсов: %w", err)
+	}
+	defer rows.Close()
+
+	var topFive []dto.TopResources
+
+	for rows.Next() {
+		var resource dto.TopResources
+		if err := rows.Scan(&resource.ResourceID, &resource.BookingCount); err != nil {
+			return nil, err
+		}
+		topFive = append(topFive, resource)
+	}
+
+	return topFive, nil
+
 }
 
 // scanBooking сканирует одну строку в доменный объект Booking.
