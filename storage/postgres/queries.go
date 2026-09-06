@@ -52,9 +52,16 @@ const (
 		GROUP BY resource_id
 		ORDER BY COUNT(*) DESC
 		LIMIT 5`
+
 	queryGetStatusInfo = `
 		SELECT status, COUNT(*) FROM bookings
 		WHERE created_at >= $1 AND created_at < ($2::date + INTERVAL '1 day')
 		GROUP BY status
 `
+	queryGetOrdersWithCancellationPending = `
+	SELECT id, status, user_id, resource_id, start_date, end_date, created_at, previous_status, cancellation_sent_at
+	FROM bookings
+	WHERE status = 'cancellation_pending' AND cancellation_sent_at < $1
+	ORDER BY created_at ASC
+	LIMIT $2`
 )

@@ -23,11 +23,19 @@ type BookingRepository interface {
 	// с пессимистичной блокировкой (SELECT ... FOR UPDATE SKIP LOCKED).
 	GetAwaitingConfirmation(ctx context.Context, limit int) ([]Booking, error)
 
+	// GetOrdersPerPeriod возвращает все бронирования за указанный интервал времени
 	GetOrdersPerPeriod(ctx context.Context, dateFrom, dateTo time.Time) (int64, error)
 
+	// GetOrdersByStatus возвращает статистику статусов всех бронирований
+	// за указанный промежуток времени
 	GetOrdersByStatus(ctx context.Context, dateFrom, dateTo time.Time) (map[string]int64, error)
 
+	// GetOrdersTopFiveResource возвращает топ 5 используемых ресурсов
+	// и количество бронирований, которые используют эти ресурсы
 	GetOrdersTopFiveResource(ctx context.Context, dateFrom, dateTo time.Time) ([]ResourceBookingStats, error)
+
+	// GetBookingsWithStatusCancellationPending возвращает бронирования в статусе CancellationPending
+	GetBookingsWithStatusCancellationPending(ctx context.Context, threshold time.Time, limit int) ([]Booking, error)
 }
 
 // BookingFilter содержит параметры фильтрации и пагинации.
