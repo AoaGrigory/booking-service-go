@@ -72,7 +72,7 @@ func (w *CancellationRetryWorker) processBatch(ctx context.Context) {
 	if len(bookings) == 0 {
 		return
 	}
-	w.logger.Info("обработка бронирования", zap.Int("count", len(bookings)))
+	w.logger.Info("обработка бронирований", zap.Int("count", len(bookings)))
 
 	for _, booking := range bookings {
 		w.processBooking(ctx, &booking)
