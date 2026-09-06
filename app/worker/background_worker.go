@@ -3,7 +3,6 @@ package worker
 import (
 	"booking-service/app/messaging"
 	"booking-service/app/models"
-	"booking-service/app/service"
 	"context"
 	"go.uber.org/zap"
 	"time"
@@ -12,9 +11,8 @@ import (
 // CancellationRetryWorker -- фоновый воркер для проверки статуса cancellation_pending
 
 type CancellationRetryWorker struct {
-	service   *service.BookingsService
 	repo      models.BookingRepository
-	message   messaging.Publisher
+	message   *messaging.Publisher
 	timeout   time.Duration
 	interval  time.Duration
 	batchSize int
@@ -23,16 +21,14 @@ type CancellationRetryWorker struct {
 
 // NewCancellationRetryWorker создает новый воркер проверки cancellation_pending
 func NewCancellationRetryWorker(
-	svc *service.BookingsService,
 	repo models.BookingRepository,
-	message messaging.Publisher,
+	message *messaging.Publisher,
 	timeout time.Duration,
 	interval time.Duration,
 	batchSize int,
 	logger *zap.Logger,
 ) *CancellationRetryWorker {
 	return &CancellationRetryWorker{
-		service:   svc,
 		repo:      repo,
 		message:   message,
 		timeout:   timeout,
@@ -63,7 +59,8 @@ func (w *CancellationRetryWorker) Run(ctx context.Context) {
 }
 
 func (w *CancellationRetryWorker) processBatch(ctx context.Context) {
-	threshold := time.Now().Add(-w.timeout)
+	threshold := time.Now().UTC().Add(-w.timeout)
+	errCount := 0
 	bookings, err := w.repo.GetBookingsWithStatusCancellationPending(ctx, threshold, w.batchSize)
 	if err != nil {
 		w.logger.Error("ошибка получения бронирования для поиска зависших", zap.Error(err))
@@ -75,11 +72,16 @@ func (w *CancellationRetryWorker) processBatch(ctx context.Context) {
 	w.logger.Info("обработка бронирований", zap.Int("count", len(bookings)))
 
 	for _, booking := range bookings {
-		w.processBooking(ctx, &booking)
+		if err := w.processBooking(ctx, &booking); err != nil {
+			errCount++
+		}
 	}
+	w.logger.Info("обработаны все бронирования",
+		zap.Int("count", len(bookings)-errCount),
+		zap.Int("errors", errCount))
 }
 
-func (w *CancellationRetryWorker) processBooking(ctx context.Context, booking *models.Booking) {
+func (w *CancellationRetryWorker) processBooking(ctx context.Context, booking *models.Booking) error {
 	bookingID := booking.ID()
 	cmd := messaging.CancelBookingJobCommand{
 		EventId:   messaging.NewMessageID(),
@@ -89,8 +91,9 @@ func (w *CancellationRetryWorker) processBooking(ctx context.Context, booking *m
 	logger.Info("начало повторной отмены бронирования")
 	if err := w.message.PublishCancelBookingJob(ctx, cmd); err != nil {
 		logger.Error("ошибка при повторной отмене бронирования", zap.Error(err))
-	} else {
-		logger.Info("повторная отмена бронирования успешно")
+		return err
 	}
 
+	logger.Info("повторная отмена бронирования успешно")
+	return nil
 }

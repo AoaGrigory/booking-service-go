@@ -63,7 +63,5 @@ const (
 	FROM bookings
 	WHERE status = 'cancellation_pending' AND cancellation_sent_at < $1
 	ORDER BY created_at ASC
-	LIMIT $1
-	FOR UPDATE SKIP LOCKED
-`
+	LIMIT $2`
 )

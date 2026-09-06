@@ -209,8 +209,7 @@ func (r *BookingsRepository) GetOrdersTopFiveResource(ctx context.Context, dateF
 
 }
 
-// GetBookingsWithStatusCancellationPending возвращает бронирования в статусе CancellationPending,
-// с пессимистичной блокировкой FOR UPDATE SKIP LOCKED.
+// GetBookingsWithStatusCancellationPending возвращает бронирования в статусе CancellationPending
 func (r *BookingsRepository) GetBookingsWithStatusCancellationPending(ctx context.Context, threshold time.Time, limit int) ([]models.Booking, error) {
 	rows, err := r.pool.Query(ctx, queryGetOrdersWithCancellationPending, threshold, limit)
 	if err != nil {
