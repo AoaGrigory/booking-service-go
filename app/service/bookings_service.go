@@ -111,23 +111,27 @@ func (s *BookingsService) Cancel(ctx context.Context, id int64) error {
 
 // Confirm подтверждает бронирование по ID.
 // Используется обработчиком событий RabbitMQ.
-func (s *BookingsService) Confirm(ctx context.Context, id int64) error {
+func (s *BookingsService) Confirm(ctx context.Context, id int64) (bool, error) {
 	booking, err := s.repo.GetByID(ctx, id)
+	raceCondition := false
 	if err != nil {
-		return err
+		return false, err
 	}
 
+	if booking.Status() == models.BookingStatusCancellationPending {
+		raceCondition = true
+	}
 	if err := booking.Confirm(); err != nil {
-		return err
+		return raceCondition, err
 	}
 
 	if err := s.repo.Update(ctx, booking); err != nil {
-		return fmt.Errorf("обновление бронирования: %w", err)
+		return raceCondition, fmt.Errorf("обновление бронирования: %w", err)
 	}
 
 	s.logger.Info("бронирование подтверждено", zap.Int64("id", id))
 
-	return nil
+	return raceCondition, nil
 }
 
 // HandleCancelError запускает роллбэк статуса

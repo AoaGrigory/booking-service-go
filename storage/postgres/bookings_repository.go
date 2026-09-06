@@ -209,6 +209,27 @@ func (r *BookingsRepository) GetOrdersTopFiveResource(ctx context.Context, dateF
 
 }
 
+// GetBookingsWithStatusCancellationPending возвращает бронирования в статусе CancellationPending,
+// с пессимистичной блокировкой FOR UPDATE SKIP LOCKED.
+func (r *BookingsRepository) GetBookingsWithStatusCancellationPending(ctx context.Context, threshold time.Time, limit int) ([]models.Booking, error) {
+	rows, err := r.pool.Query(ctx, queryGetOrdersWithCancellationPending, threshold, limit)
+	if err != nil {
+		return nil, fmt.Errorf("проверка поиска по статусу cancellation_pending: %w", err)
+	}
+	defer rows.Close()
+	var bookings []models.Booking
+
+	for rows.Next() {
+		booking, err := r.scanBookingFromRows(rows)
+		if err != nil {
+			return nil, fmt.Errorf("итерация по проверке поиска по статусу cancellation_pending: %w", err)
+		}
+		bookings = append(bookings, *booking)
+	}
+	return bookings, rows.Err()
+
+}
+
 // scanBooking сканирует одну строку в доменный объект Booking.
 func (r *BookingsRepository) scanBooking(row pgx.Row) (*models.Booking, error) {
 	var (
