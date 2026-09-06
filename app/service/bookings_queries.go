@@ -99,7 +99,7 @@ func (q *BookingsQueries) GetStatistic(ctx context.Context, dateFrom, dateTo tim
 	if err != nil {
 		return dto.BookingStatistic{}, fmt.Errorf("сервис статистики топ 5 ресурсов: %w", err)
 	}
-	var topFiveDto []dto.TopResource
+	topFiveDto := make([]dto.TopResource, 0, len(topFive))
 	for _, item := range topFive {
 		topFiveDto = append(topFiveDto, dto.TopResource{
 			ResourceID:   item.ResourceID,

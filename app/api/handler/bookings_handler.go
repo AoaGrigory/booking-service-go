@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -129,7 +130,7 @@ func (h *BookingsHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, dto.BookingStatusResponse{Status: string(status)})
 }
 
-// GetStatistics обрабатывает GET /api/bookings/statistics/{dateFrom}/{dateTo}
+// GetStatistics обрабатывает GET /api/bookings/statistics
 func (h *BookingsHandler) GetStatistics(w http.ResponseWriter, r *http.Request) {
 	dateFrom, err := parseDateParam(r, "dateFrom")
 	if err != nil {
@@ -178,8 +179,11 @@ func (h *BookingsHandler) handleServiceError(w http.ResponseWriter, err error) {
 // Вспомогательные функции
 
 func parseDateParam(r *http.Request, paramName string) (time.Time, error) {
-	dateFromStr := r.URL.Query().Get(paramName)
-	dateParam, err := time.Parse(dto.DateFormat, dateFromStr)
+	if paramName == "" {
+		return time.Time{}, fmt.Errorf("параметр обязателен")
+	}
+	dateStr := r.URL.Query().Get(paramName)
+	dateParam, err := time.Parse(dto.DateFormat, dateStr)
 	if err != nil {
 		return time.Time{}, err
 	}
