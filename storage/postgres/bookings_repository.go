@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"booking-service/app/models"
@@ -143,6 +143,70 @@ func (r *BookingsRepository) GetAwaitingConfirmation(ctx context.Context, limit 
 	}
 
 	return bookings, rows.Err()
+}
+
+// GetOrdersPerPeriod возвращает количество броней с dateFrom по dateTo
+func (r *BookingsRepository) GetOrdersPerPeriod(ctx context.Context, dateFrom, dateTo time.Time) (int64, error) {
+	row := r.pool.QueryRow(ctx, queryGetCountOrdersBetweenPeriod, dateFrom, dateTo)
+	var count int64
+	if err := row.Scan(&count); err != nil {
+		return 0, fmt.Errorf("подсчет бронирований за период: %w", err)
+	}
+
+	return count, nil
+}
+
+// GetOrdersByStatus возвращает статусы и количество броней с этими статусами с dateFrom по dateTo
+func (r *BookingsRepository) GetOrdersByStatus(ctx context.Context, dateFrom, dateTo time.Time) (map[string]int64, error) {
+	rows, err := r.pool.Query(ctx, queryGetStatusInfo, dateFrom, dateTo)
+	if err != nil {
+		return nil, fmt.Errorf("проверка статуса: %w", err)
+	}
+	defer rows.Close()
+
+	status := map[string]int64{
+		string(models.BookingStatusAwaitsConfirmation):  0,
+		string(models.BookingStatusConfirmed):           0,
+		string(models.BookingStatusCancelled):           0,
+		string(models.BookingStatusCancellationPending): 0,
+	}
+	for rows.Next() {
+		var statusName string
+		var count int64
+
+		if err := rows.Scan(&statusName, &count); err != nil {
+			return nil, fmt.Errorf("итерация статистики по статусам: %w", err)
+		}
+		status[statusName] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("итерация статистики по статусам: %w", err)
+	}
+	return status, nil
+}
+
+func (r *BookingsRepository) GetOrdersTopFiveResource(ctx context.Context, dateFrom, dateTo time.Time) ([]models.ResourceBookingStats, error) {
+	rows, err := r.pool.Query(ctx, queryGetTopFiveResource, dateFrom, dateTo)
+	if err != nil {
+		return nil, fmt.Errorf("проверка топ 5 ресурсов: %w", err)
+	}
+	defer rows.Close()
+
+	var topFive []models.ResourceBookingStats
+
+	for rows.Next() {
+		var resource models.ResourceBookingStats
+		if err := rows.Scan(&resource.ResourceID, &resource.BookingCount); err != nil {
+			return nil, fmt.Errorf("итерация статистики по топ 5 ресурсам: %w", err)
+		}
+		topFive = append(topFive, resource)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("итерация статистики по топ 5 ресурсам: %w", err)
+	}
+
+	return topFive, nil
+
 }
 
 // scanBooking сканирует одну строку в доменный объект Booking.
