@@ -55,14 +55,19 @@ func (r *BookingsRepository) GetByID(ctx context.Context, id int64) (*models.Boo
 }
 
 // Update обновляет статус бронирования.
-func (r *BookingsRepository) Update(ctx context.Context, booking *models.Booking) error {
+func (r *BookingsRepository) Update(ctx context.Context, booking *models.Booking, oldStatus models.BookingStatus, reason, initiator string) error {
 	var ps *string
 	if v := booking.PreviousStatus(); v != "" {
 		s := string(v)
 		ps = &s
 	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
 
-	tag, err := r.pool.Exec(ctx, queryUpdateBookingStatus,
+	tag, err := tx.Exec(ctx, queryUpdateBookingStatus,
 		string(booking.Status()),
 		ps,
 		booking.CancellationSentAt(),
@@ -74,6 +79,21 @@ func (r *BookingsRepository) Update(ctx context.Context, booking *models.Booking
 	if tag.RowsAffected() == 0 {
 		return models.ErrBookingNotFound
 	}
+	if _, err := tx.Exec(ctx, queryInsertBookingHistory,
+		booking.ID(),
+		oldStatus,
+		booking.Status(),
+		time.Now(),
+		reason,
+		initiator,
+	); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -227,6 +247,49 @@ func (r *BookingsRepository) GetBookingsWithStatusCancellationPending(ctx contex
 	}
 	return bookings, rows.Err()
 
+}
+
+func (r *BookingsRepository) GetBookingHistory(ctx context.Context, bookingId, limit, offset int) ([]models.BookingHistory, error) {
+	var (
+		id             int64
+		bookingID      int64
+		previousStatus *string
+		newStatus      string
+		changedAt      time.Time
+		reason         string
+		initiator      string
+	)
+	rows, err := r.pool.Query(ctx, queryGetBookingHistoryByID, bookingId, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("проверка поиска истории по статусу бронирования: %w", err)
+	}
+	var history []models.BookingHistory
+	defer rows.Close()
+	for rows.Next() {
+		err := rows.Scan(&id, &bookingID, &previousStatus, &newStatus, &changedAt, &reason, &initiator)
+		if err != nil {
+			return nil, err
+		}
+		var ps models.BookingStatus
+		if previousStatus != nil {
+			ps = models.BookingStatus(*previousStatus)
+		}
+
+		history = append(history, *models.RestoreBookingHistory(id, bookingID, ps, models.BookingStatus(newStatus), changedAt, reason, initiator))
+	}
+
+	return history, rows.Err()
+}
+
+func (r *BookingsRepository) GetBookingHistoryCount(ctx context.Context, bookingID int64) (int64, error) {
+	var count int64
+
+	row := r.pool.QueryRow(ctx, queryGetCountBookingHistory, bookingID)
+	if err := row.Scan(&count); err != nil {
+		return 0, fmt.Errorf("получение количества записей истории бронирования: %w", err)
+	}
+
+	return count, nil
 }
 
 // scanBooking сканирует одну строку в доменный объект Booking.

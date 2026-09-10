@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"go.uber.org/zap"
@@ -92,10 +93,13 @@ func (s *BookingsService) Cancel(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
+	oldStatus := booking.Status()
+	reason := "user requested cancellation"
+	initiator := strconv.FormatInt(booking.UserID(), 10)
 	if err := booking.StartCancellation(time.Now()); err != nil {
 		return err
 	}
-	if err := s.repo.Update(ctx, booking); err != nil {
+	if err := s.repo.Update(ctx, booking, oldStatus, reason, initiator); err != nil {
 		return fmt.Errorf("обновление бронирования: %w", err)
 	}
 
@@ -121,11 +125,14 @@ func (s *BookingsService) Confirm(ctx context.Context, id int64) (bool, error) {
 	if booking.Status() == models.BookingStatusCancellationPending {
 		raceCondition = true
 	}
+	oldStatus := booking.Status()
+	reason := "confirm from Catalog"
+	initiator := "system"
 	if err := booking.Confirm(); err != nil {
 		return raceCondition, err
 	}
 
-	if err := s.repo.Update(ctx, booking); err != nil {
+	if err := s.repo.Update(ctx, booking, oldStatus, reason, initiator); err != nil {
 		return raceCondition, fmt.Errorf("обновление бронирования: %w", err)
 	}
 
@@ -145,10 +152,13 @@ func (s *BookingsService) HandleCancelError(ctx context.Context, requestID strin
 		return err
 	}
 
+	oldStatus := booking.Status()
+	reason := "cancellation rollback after error"
+	initiator := "system"
 	if err := booking.RollbackCancellation(); err != nil {
 		return fmt.Errorf("роллбэк: %w", err)
 	}
-	if err := s.repo.Update(ctx, booking); err != nil {
+	if err := s.repo.Update(ctx, booking, oldStatus, reason, initiator); err != nil {
 		return fmt.Errorf("обновление при роллбэке: %w", err)
 	}
 	s.logger.Info("Успешный роллбэк, статус возвращен",
@@ -164,10 +174,13 @@ func (s *BookingsService) CompleteCancellation(ctx context.Context, id int64) er
 	if err != nil {
 		return fmt.Errorf("получение бронирования при завершении отмены %d: %w", id, err)
 	}
+	oldStatus := booking.Status()
+	reason := "cancellation confirmed by Catalog"
+	initiator := "system"
 	if err := booking.CompleteCancellation(); err != nil {
 		return fmt.Errorf("завершение отмены бронирования %d: %w", id, err)
 	}
-	if err := s.repo.Update(ctx, booking); err != nil {
+	if err := s.repo.Update(ctx, booking, oldStatus, reason, initiator); err != nil {
 		return fmt.Errorf("обновление при отмене: %w", err)
 	}
 	s.logger.Info("успешная отмена, статус изменен",

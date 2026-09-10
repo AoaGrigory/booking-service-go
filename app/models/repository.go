@@ -14,7 +14,7 @@ type BookingRepository interface {
 	GetByID(ctx context.Context, id int64) (*Booking, error)
 
 	// Update обновляет бронирование в хранилище.
-	Update(ctx context.Context, booking *Booking) error
+	Update(ctx context.Context, booking *Booking, oldStatus BookingStatus, reason, initiator string) error
 
 	// GetByFilter возвращает список бронирований с пагинацией.
 	GetByFilter(ctx context.Context, filter BookingFilter) ([]Booking, int64, error)
@@ -36,6 +36,11 @@ type BookingRepository interface {
 
 	// GetBookingsWithStatusCancellationPending возвращает бронирования в статусе CancellationPending
 	GetBookingsWithStatusCancellationPending(ctx context.Context, threshold time.Time, limit int) ([]Booking, error)
+
+	// GetBookingHistory возвращает историю изменения статуса
+	GetBookingHistory(ctx context.Context, bookingID int64, limit, offset int) ([]BookingHistory, error)
+
+	GetBookingHistoryCount(ctx context.Context, bookingID int64) (int64, error)
 }
 
 // BookingFilter содержит параметры фильтрации и пагинации.

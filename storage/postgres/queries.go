@@ -16,7 +16,9 @@ const (
 		SET status = $1,
 		previous_status = $2,
 		cancellation_sent_at = $3
-		WHERE id = $4`
+		WHERE id = $4
+		
+		`
 
 	queryGetBookingsByFilter = `
 		SELECT id, status, user_id, resource_id, start_date, end_date, created_at, previous_status, cancellation_sent_at
@@ -64,4 +66,21 @@ const (
 	WHERE status = 'cancellation_pending' AND cancellation_sent_at < $1
 	ORDER BY created_at ASC
 	LIMIT $2`
+
+	queryInsertBookingHistory = `
+	INSERT INTO booking_history(booking_id, previous_status, new_status, changed_at, reason, initiator)
+	VALUES ($1, $2, $3, $4, $5, $6)
+	RETURNING id`
+
+	queryGetBookingHistoryByID = `
+	SELECT id ,booking_id, previous_status, new_status, changed_at, reason, initiator 
+	FROM booking_history
+	WHERE booking_id = $1
+	ORDER BY changed_at DESC 
+	LIMIT $2 OFFSET $3`
+
+	queryGetCountBookingHistory = `
+	SELECT COUNT(*) 
+	FROM booking_history
+	WHERE booking_id = $1`
 )

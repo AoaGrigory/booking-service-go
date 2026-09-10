@@ -116,6 +116,41 @@ func (q *BookingsQueries) GetStatistic(ctx context.Context, dateFrom, dateTo tim
 	}, nil
 }
 
+func (q *BookingsQueries) GetHistory(ctx context.Context, bookingId int64, req dto.GetBookingHistoryRequest) (dto.PagedResponse[dto.BookingHistoryResponse], error) {
+	page := req.Page
+	size := req.Size
+	offset := (page - 1) * size
+
+	bookingHistory := make([]dto.BookingHistoryResponse, 0)
+	count, err := q.repo.GetBookingHistoryCount(ctx, bookingId)
+	if err != nil {
+		return dto.PagedResponse[dto.BookingHistoryResponse]{}, err
+	}
+
+	booking, err := q.repo.GetBookingHistory(ctx, bookingId, size, offset)
+	if err != nil {
+		return dto.PagedResponse[dto.BookingHistoryResponse]{}, err
+	}
+	for _, val := range booking {
+		historyDto := dto.BookingHistoryResponse{
+			ID:             val.GetId(),
+			BookingID:      val.BookingID(),
+			PreviousStatus: string(val.PreviousStatus()),
+			NewStatus:      string(val.NewStatus()),
+			ChangedAt:      val.ChangedAt().Format(dto.DateFormat),
+			Reason:         val.Reason(),
+			Initiator:      val.Initiator(),
+		}
+		bookingHistory = append(bookingHistory, historyDto)
+	}
+
+	return dto.PagedResponse[dto.BookingHistoryResponse]{
+		Items:      bookingHistory,
+		TotalCount: count,
+		Page:       page,
+		Size:       size}, nil
+}
+
 // mapBookingToResponse конвертирует доменный объект в DTO ответа.
 func mapBookingToResponse(b *models.Booking) dto.BookingResponse {
 	return dto.BookingResponse{
