@@ -133,11 +133,11 @@ func (q *BookingsQueries) GetHistory(ctx context.Context, bookingId int64, req d
 	}
 	for _, val := range booking {
 		historyDto := dto.BookingHistoryResponse{
-			ID:             val.GetId(),
+			ID:             val.GetID(),
 			BookingID:      val.BookingID(),
 			PreviousStatus: string(val.PreviousStatus()),
 			NewStatus:      string(val.NewStatus()),
-			ChangedAt:      val.ChangedAt().Format(dto.DateFormat),
+			ChangedAt:      val.ChangedAt().Format(time.RFC3339),
 			Reason:         val.Reason(),
 			Initiator:      val.Initiator(),
 		}

@@ -159,7 +159,7 @@ func (h *BookingsHandler) GetStatistics(w http.ResponseWriter, r *http.Request) 
 
 // GetHistory обрабатывает GET api/bookings/{id}/history
 func (h *BookingsHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
-	bookingId, err := parseBookingHistoryIDParam(r)
+	bookingId, err := parseIDParam(r)
 	if err != nil {
 		writeProblemDetails(w, http.StatusBadRequest, "неверный id", err.Error())
 		return
@@ -180,7 +180,7 @@ func (h *BookingsHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	history, err := h.queries.GetHistory(r.Context(), bookingId, req)
 	if err != nil {
-		writeProblemDetails(w, http.StatusBadRequest, "неверный id бронирования", err.Error())
+		h.handleServiceError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, history)
@@ -226,17 +226,26 @@ func parseIDParam(r *http.Request) (int64, error) {
 	return strconv.ParseInt(idStr, 10, 64)
 }
 
-func parseBookingHistoryIDParam(r *http.Request) (int64, error) {
-	idStr := chi.URLParam(r, "bookingId")
-	return strconv.ParseInt(idStr, 10, 64)
-}
+//	func parseBookingHistoryIDParam(r *http.Request) (int64, error) {
+//		idStr := chi.URL(r, "bookingId")
+//		return strconv.ParseInt(idStr, 10, 64)
+//	}
 func parsePageAndSizeForHistory(r *http.Request, paramName string) (int64, error) {
 	pageOrSizeStr := r.URL.Query().Get(paramName)
-	PageOrSize, err := strconv.ParseInt(pageOrSizeStr, 10, 64)
+	if pageOrSizeStr == "" {
+		if paramName == "page" {
+			return 1, nil
+		}
+		if paramName == "size" {
+			return 25, nil
+		}
+	}
+	pageOrSize, err := strconv.ParseInt(pageOrSizeStr, 10, 64)
 	if err != nil {
 		return 0, err
 	}
-	return PageOrSize, nil
+
+	return pageOrSize, nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, data any) {

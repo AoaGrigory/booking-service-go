@@ -12,7 +12,7 @@ type BookingHistory struct {
 	initiator      string
 }
 
-func (b *BookingHistory) GetId() int64                  { return b.id }
+func (b *BookingHistory) GetID() int64                  { return b.id }
 func (b *BookingHistory) BookingID() int64              { return b.bookingID }
 func (b *BookingHistory) PreviousStatus() BookingStatus { return b.previousStatus }
 func (b *BookingHistory) NewStatus() BookingStatus      { return b.newStatus }

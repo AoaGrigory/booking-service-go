@@ -65,7 +65,9 @@ func (r *BookingsRepository) Update(ctx context.Context, booking *models.Booking
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
 
 	tag, err := tx.Exec(ctx, queryUpdateBookingStatus,
 		string(booking.Status()),
@@ -87,7 +89,7 @@ func (r *BookingsRepository) Update(ctx context.Context, booking *models.Booking
 		reason,
 		initiator,
 	); err != nil {
-		return err
+		return fmt.Errorf("обновление истории бронирования id=%d: %w", booking.ID(), err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -249,7 +251,7 @@ func (r *BookingsRepository) GetBookingsWithStatusCancellationPending(ctx contex
 
 }
 
-func (r *BookingsRepository) GetBookingHistory(ctx context.Context, bookingId, limit, offset int) ([]models.BookingHistory, error) {
+func (r *BookingsRepository) GetBookingHistory(ctx context.Context, bookingId int64, limit, offset int) ([]models.BookingHistory, error) {
 	var (
 		id             int64
 		bookingID      int64

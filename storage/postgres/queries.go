@@ -69,8 +69,7 @@ const (
 
 	queryInsertBookingHistory = `
 	INSERT INTO booking_history(booking_id, previous_status, new_status, changed_at, reason, initiator)
-	VALUES ($1, $2, $3, $4, $5, $6)
-	RETURNING id`
+	VALUES ($1, $2, $3, $4, $5, $6)`
 
 	queryGetBookingHistoryByID = `
 	SELECT id ,booking_id, previous_status, new_status, changed_at, reason, initiator 
