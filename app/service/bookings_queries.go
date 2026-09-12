@@ -139,10 +139,15 @@ func (q *BookingsQueries) GetHistory(ctx context.Context, bookingId int64, req d
 		return dto.PagedResponse[dto.BookingHistoryResponse]{}, err
 	}
 	for _, val := range booking {
+		var previousStatus *string
+		if val.PreviousStatus() != "" {
+			s := string(val.PreviousStatus())
+			previousStatus = &s
+		}
 		historyDto := dto.BookingHistoryResponse{
 			ID:             val.GetID(),
 			BookingID:      val.BookingID(),
-			PreviousStatus: string(val.PreviousStatus()),
+			PreviousStatus: previousStatus,
 			NewStatus:      string(val.NewStatus()),
 			ChangedAt:      val.ChangedAt().Format(time.RFC3339),
 			Reason:         val.Reason(),

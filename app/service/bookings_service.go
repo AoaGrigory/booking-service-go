@@ -58,9 +58,6 @@ func (s *BookingsService) Create(ctx context.Context, req dto.CreateBookingReque
 	reason := "Booking created by user"
 	initiator := strconv.FormatInt(booking.UserID(), 10)
 
-	if err != nil {
-		return 0, fmt.Errorf("ошибка создания истории в Create: %w", err)
-	}
 	tx, err := s.repo.BeginTx(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("ошибка начала транзакции в Create: %w", err)
@@ -73,17 +70,20 @@ func (s *BookingsService) Create(ctx context.Context, req dto.CreateBookingReque
 	}
 
 	entry, err := models.NewBookingHistory(
-		booking.ID(),
+		id,
 		"",
 		booking.Status(),
 		reason,
 		initiator,
 	)
+	if err != nil {
+		return 0, fmt.Errorf("ошибка создания истории в Create: %w", err)
+	}
 	if err := s.repo.AddHistoryTx(ctx, tx, entry); err != nil {
-		return 0, fmt.Errorf("ошибка начала транзакции в Create: %w", err)
+		return 0, fmt.Errorf("ошибка транзакции при добавлении в историю в Create: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return 0, fmt.Errorf("ошибка начала транзакции в Create: %w", err)
+		return 0, fmt.Errorf("ошибка коммита транзакции в Create: %w", err)
 	}
 
 	s.logger.Info("бронирование создано",

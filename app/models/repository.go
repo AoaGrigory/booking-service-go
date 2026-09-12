@@ -8,14 +8,10 @@ import (
 
 // BookingRepository -- интерфейс репозитория бронирований.
 type BookingRepository interface {
-	// Create сохраняет новое бронирование и возвращает присвоенный ID.
 	Create(ctx context.Context, booking *Booking) (int64, error)
 
 	// GetByID возвращает бронирование по ID.
 	GetByID(ctx context.Context, id int64) (*Booking, error)
-
-	// Update обновляет бронирование в хранилище.
-	//Update(ctx context.Context, booking *Booking) error
 
 	// GetByFilter возвращает список бронирований с пагинацией.
 	GetByFilter(ctx context.Context, filter BookingFilter) ([]Booking, int64, error)
@@ -41,14 +37,21 @@ type BookingRepository interface {
 	// GetBookingHistory возвращает историю изменения статуса
 	GetBookingHistory(ctx context.Context, bookingID int64, limit, offset int) ([]BookingHistory, error)
 
+	// GetBookingHistoryCount возвращает количество бронирований из истории
 	GetBookingHistoryCount(ctx context.Context, bookingID int64) (int64, error)
 
+	// CreateTx сохраняет новое бронирование,возвращает присвоенный ID
+	// и сохраняет в историю
 	CreateTx(ctx context.Context, tx pgx.Tx, booking *Booking) (int64, error)
 
+	// UpdateTx обновляет бронирование в хранилище
+	// и сохраняет в историю
 	UpdateTx(ctx context.Context, tx pgx.Tx, booking *Booking) error
 
+	// AddHistoryTx сохраняет в историю
 	AddHistoryTx(ctx context.Context, tx pgx.Tx, entry *BookingHistory) error
 
+	// BeginTx начинает транзакцию
 	BeginTx(ctx context.Context) (pgx.Tx, error)
 }
 

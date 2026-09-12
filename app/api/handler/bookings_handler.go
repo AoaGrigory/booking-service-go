@@ -164,12 +164,12 @@ func (h *BookingsHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
 		writeProblemDetails(w, http.StatusBadRequest, "неверный id", err.Error())
 		return
 	}
-	page, err := parsePageAndSizeForHistory(r, "page")
+	page, err := parseIntQuery(r, "page", 1)
 	if err != nil {
 		writeProblemDetails(w, http.StatusBadRequest, "ошибка страницы", err.Error())
 		return
 	}
-	size, err := parsePageAndSizeForHistory(r, "size")
+	size, err := parseIntQuery(r, "size", 25)
 	if err != nil {
 		writeProblemDetails(w, http.StatusBadRequest, "ошибка размера страницы", err.Error())
 		return
@@ -226,22 +226,20 @@ func parseIDParam(r *http.Request) (int64, error) {
 	return strconv.ParseInt(idStr, 10, 64)
 }
 
-func parsePageAndSizeForHistory(r *http.Request, paramName string) (int64, error) {
-	pageOrSizeStr := r.URL.Query().Get(paramName)
-	if pageOrSizeStr == "" {
-		if paramName == "page" {
-			return 1, nil
-		}
-		if paramName == "size" {
-			return 25, nil
-		}
+func parseIntQuery(r *http.Request, paramName string, def int64) (int64, error) {
+	valueStr := r.URL.Query().Get(paramName)
+	if valueStr == "" {
+		return def, nil
 	}
-	pageOrSize, err := strconv.ParseInt(pageOrSizeStr, 10, 64)
+	value, err := strconv.ParseInt(valueStr, 10, 64)
 	if err != nil {
 		return 0, err
 	}
+	if value <= 0 {
+		return 0, fmt.Errorf("%s должен быть больше 0", paramName)
+	}
 
-	return pageOrSize, nil
+	return value, nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, data any) {

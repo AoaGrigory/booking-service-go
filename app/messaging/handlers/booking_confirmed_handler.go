@@ -47,9 +47,6 @@ func (h *BookingConfirmedHandler) Handle(ctx context.Context, body []byte) error
 			zap.Int64("bookingId", bookingID),
 			zap.Int64("catalogJob", event.Id))
 	}
-	if err != nil {
-		return fmt.Errorf("подтверждение бронирования %d: %w", bookingID, err)
-	}
 
 	h.logger.Info("бронирование подтверждено через событие", zap.Int64("bookingId", bookingID))
 	return nil
