@@ -235,15 +235,7 @@ func (r *BookingsRepository) GetBookingsWithStatusCancellationPending(ctx contex
 }
 
 func (r *BookingsRepository) GetBookingHistory(ctx context.Context, bookingId int64, limit, offset int) ([]models.BookingHistory, error) {
-	var (
-		id             int64
-		bookingID      int64
-		previousStatus *string
-		newStatus      string
-		changedAt      time.Time
-		reason         string
-		initiator      string
-	)
+
 	rows, err := r.pool.Query(ctx, queryGetBookingHistoryByID, bookingId, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("проверка поиска истории по статусу бронирования: %w", err)
@@ -251,6 +243,15 @@ func (r *BookingsRepository) GetBookingHistory(ctx context.Context, bookingId in
 	var history []models.BookingHistory
 	defer rows.Close()
 	for rows.Next() {
+		var (
+			id             int64
+			bookingID      int64
+			previousStatus *string
+			newStatus      string
+			changedAt      time.Time
+			reason         *string
+			initiator      string
+		)
 		err := rows.Scan(&id, &bookingID, &previousStatus, &newStatus, &changedAt, &reason, &initiator)
 		if err != nil {
 			return nil, err
@@ -260,7 +261,7 @@ func (r *BookingsRepository) GetBookingHistory(ctx context.Context, bookingId in
 			ps = models.BookingStatus(*previousStatus)
 		}
 
-		history = append(history, *models.RestoreBookingHistory(id, bookingID, ps, models.BookingStatus(newStatus), changedAt, reason, initiator))
+		history = append(history, *models.RestoreBookingHistory(id, bookingID, ps, models.BookingStatus(newStatus), changedAt, *reason, initiator))
 	}
 
 	return history, rows.Err()
@@ -278,6 +279,22 @@ func (r *BookingsRepository) GetBookingHistoryCount(ctx context.Context, booking
 }
 
 func (r *BookingsRepository) AddHistoryTx(ctx context.Context, tx pgx.Tx, entry *models.BookingHistory) error {
+
+	var previousStatus *string
+	if entry.PreviousStatus() != "" {
+		s := string(entry.PreviousStatus())
+		previousStatus = &s
+	}
+	if _, err := tx.Exec(ctx, queryInsertBookingHistory,
+		entry.BookingID(),
+		previousStatus,
+		string(entry.NewStatus()),
+		entry.ChangedAt(),
+		entry.Reason(),
+		entry.Initiator(),
+	); err != nil {
+		return fmt.Errorf("ошибка добавления в историю: %w", err)
+	}
 
 	return nil
 }

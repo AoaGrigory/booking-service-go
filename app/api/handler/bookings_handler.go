@@ -226,10 +226,6 @@ func parseIDParam(r *http.Request) (int64, error) {
 	return strconv.ParseInt(idStr, 10, 64)
 }
 
-//	func parseBookingHistoryIDParam(r *http.Request) (int64, error) {
-//		idStr := chi.URL(r, "bookingId")
-//		return strconv.ParseInt(idStr, 10, 64)
-//	}
 func parsePageAndSizeForHistory(r *http.Request, paramName string) (int64, error) {
 	pageOrSizeStr := r.URL.Query().Get(paramName)
 	if pageOrSizeStr == "" {

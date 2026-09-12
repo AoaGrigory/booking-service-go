@@ -117,8 +117,15 @@ func (q *BookingsQueries) GetStatistic(ctx context.Context, dateFrom, dateTo tim
 }
 
 func (q *BookingsQueries) GetHistory(ctx context.Context, bookingId int64, req dto.GetBookingHistoryRequest) (dto.PagedResponse[dto.BookingHistoryResponse], error) {
+
 	page := req.Page
+	if page <= 0 {
+		page = 1
+	}
 	size := req.Size
+	if size <= 0 {
+		size = 25
+	}
 	offset := (page - 1) * size
 
 	bookingHistory := make([]dto.BookingHistoryResponse, 0)

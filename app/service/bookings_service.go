@@ -55,8 +55,22 @@ func (s *BookingsService) Create(ctx context.Context, req dto.CreateBookingReque
 	if err != nil {
 		return 0, err
 	}
-	reason := "user requested cancellation"
+	reason := "Booking created by user"
 	initiator := strconv.FormatInt(booking.UserID(), 10)
+
+	if err != nil {
+		return 0, fmt.Errorf("ошибка создания истории в Create: %w", err)
+	}
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("ошибка начала транзакции в Create: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	id, err := s.repo.CreateTx(ctx, tx, booking)
+	if err != nil {
+		return 0, fmt.Errorf("сохранение бронирования: %w", err)
+	}
 
 	entry, err := models.NewBookingHistory(
 		booking.ID(),
@@ -65,18 +79,6 @@ func (s *BookingsService) Create(ctx context.Context, req dto.CreateBookingReque
 		reason,
 		initiator,
 	)
-	if err != nil {
-		return 0, fmt.Errorf("ошибка создания истории в Create: %w", err)
-	}
-	tx, err := s.repo.BeginTx(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("ошибка начала транзакции в Create: %w", err)
-	}
-
-	id, err := s.repo.Create(ctx, booking)
-	if err != nil {
-		return 0, fmt.Errorf("сохранение бронирования: %w", err)
-	}
 	if err := s.repo.AddHistoryTx(ctx, tx, entry); err != nil {
 		return 0, fmt.Errorf("ошибка начала транзакции в Create: %w", err)
 	}
@@ -122,10 +124,6 @@ func (s *BookingsService) Cancel(ctx context.Context, id int64) error {
 	if err := booking.StartCancellation(time.Now()); err != nil {
 		return err
 	}
-
-	if err := booking.Confirm(); err != nil {
-		return err
-	}
 	entry, err := models.NewBookingHistory(
 		booking.ID(),
 		oldStatus,
@@ -140,6 +138,7 @@ func (s *BookingsService) Cancel(ctx context.Context, id int64) error {
 	if err != nil {
 		return fmt.Errorf("ошибка начала транзакции в Cancel: %w", err)
 	}
+	defer func() { _ = tx.Rollback(ctx) }()
 	if err := s.repo.UpdateTx(ctx, tx, booking); err != nil {
 		return fmt.Errorf("обновление бронирования: %w", err)
 	}
@@ -162,21 +161,21 @@ func (s *BookingsService) Cancel(ctx context.Context, id int64) error {
 
 // Confirm подтверждает бронирование по ID.
 // Используется обработчиком событий RabbitMQ.
-func (s *BookingsService) Confirm(ctx context.Context, id int64) (bool, error) {
+func (s *BookingsService) Confirm(ctx context.Context, id int64) error {
 	booking, err := s.repo.GetByID(ctx, id)
-	raceCondition := false
 	if err != nil {
-		return false, err
+		return err
 	}
 
 	if booking.Status() == models.BookingStatusCancellationPending {
-		raceCondition = true
+		s.logger.Warn("Обнаружена race condition: переход cancellation_pending -> confirmed",
+			zap.Int64("bookingId", id))
 	}
 	oldStatus := booking.Status()
 	reason := "confirm from Catalog"
 	initiator := "system"
 	if err := booking.Confirm(); err != nil {
-		return raceCondition, err
+		return err
 	}
 	entry, err := models.NewBookingHistory(
 		booking.ID(),
@@ -186,28 +185,28 @@ func (s *BookingsService) Confirm(ctx context.Context, id int64) (bool, error) {
 		initiator,
 	)
 	if err != nil {
-		return raceCondition, fmt.Errorf("ошибка создания истории в confirm: %w", err)
+		return fmt.Errorf("ошибка создания истории в confirm: %w", err)
 	}
 	tx, err := s.repo.BeginTx(ctx)
 	if err != nil {
-		return raceCondition, fmt.Errorf("ошибка начала транзакции в confirm: %w", err)
+		return fmt.Errorf("ошибка начала транзакции в confirm: %w", err)
 	}
 
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := s.repo.UpdateTx(ctx, tx, booking); err != nil {
-		return raceCondition, fmt.Errorf("обновление бронирования: %w", err)
+		return fmt.Errorf("обновление бронирования: %w", err)
 	}
 	if err := s.repo.AddHistoryTx(ctx, tx, entry); err != nil {
-		return raceCondition, fmt.Errorf("добавление в историю в confirm: %w", err)
+		return fmt.Errorf("добавление в историю в confirm: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return raceCondition, fmt.Errorf("ошибка при коммите в confirm: %w", err)
+		return fmt.Errorf("ошибка при коммите в confirm: %w", err)
 	}
 
 	s.logger.Info("бронирование подтверждено", zap.Int64("id", id))
 
-	return raceCondition, nil
+	return nil
 }
 
 // HandleCancelError запускает роллбэк статуса
@@ -286,6 +285,8 @@ func (s *BookingsService) CompleteCancellation(ctx context.Context, id int64) er
 	if err != nil {
 		return fmt.Errorf("ошибка начала транзакции в CompleteCancellation: %w", err)
 	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
 	if err := s.repo.UpdateTx(ctx, tx, booking); err != nil {
 		return fmt.Errorf("обновление при отмене: %w", err)
 	}
