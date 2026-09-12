@@ -2,6 +2,7 @@ package models
 
 import (
 	"context"
+	"github.com/jackc/pgx/v5"
 	"time"
 )
 
@@ -14,7 +15,7 @@ type BookingRepository interface {
 	GetByID(ctx context.Context, id int64) (*Booking, error)
 
 	// Update обновляет бронирование в хранилище.
-	Update(ctx context.Context, booking *Booking, oldStatus BookingStatus, reason, initiator string) error
+	//Update(ctx context.Context, booking *Booking) error
 
 	// GetByFilter возвращает список бронирований с пагинацией.
 	GetByFilter(ctx context.Context, filter BookingFilter) ([]Booking, int64, error)
@@ -41,6 +42,14 @@ type BookingRepository interface {
 	GetBookingHistory(ctx context.Context, bookingID int64, limit, offset int) ([]BookingHistory, error)
 
 	GetBookingHistoryCount(ctx context.Context, bookingID int64) (int64, error)
+
+	CreateTx(ctx context.Context, tx pgx.Tx, booking *Booking) (int64, error)
+
+	UpdateTx(ctx context.Context, tx pgx.Tx, booking *Booking) error
+
+	AddHistoryTx(ctx context.Context, tx pgx.Tx, entry *BookingHistory) error
+
+	BeginTx(ctx context.Context) (pgx.Tx, error)
 }
 
 // BookingFilter содержит параметры фильтрации и пагинации.

@@ -22,10 +22,14 @@ func NewBookingsRepository(pool *pgxpool.Pool) *BookingsRepository {
 	return &BookingsRepository{pool: pool}
 }
 
-// Create сохраняет новое бронирование.
-func (r *BookingsRepository) Create(ctx context.Context, booking *models.Booking) (int64, error) {
+func (r *BookingsRepository) BeginTx(ctx context.Context) (pgx.Tx, error) {
+	return r.pool.Begin(ctx)
+}
+
+// CreateTx сохраняет новое бронирование.
+func (r *BookingsRepository) CreateTx(ctx context.Context, tx pgx.Tx, booking *models.Booking) (int64, error) {
 	var id int64
-	err := r.pool.QueryRow(ctx, queryInsertBooking,
+	err := tx.QueryRow(ctx, queryInsertBooking,
 		string(booking.Status()),
 		booking.UserID(),
 		booking.ResourceID(),
@@ -54,20 +58,13 @@ func (r *BookingsRepository) GetByID(ctx context.Context, id int64) (*models.Boo
 	return booking, nil
 }
 
-// Update обновляет статус бронирования.
-func (r *BookingsRepository) Update(ctx context.Context, booking *models.Booking, oldStatus models.BookingStatus, reason, initiator string) error {
+// UpdateTx обновляет статус бронирования.
+func (r *BookingsRepository) UpdateTx(ctx context.Context, tx pgx.Tx, booking *models.Booking) error {
 	var ps *string
 	if v := booking.PreviousStatus(); v != "" {
 		s := string(v)
 		ps = &s
 	}
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = tx.Rollback(ctx)
-	}()
 
 	tag, err := tx.Exec(ctx, queryUpdateBookingStatus,
 		string(booking.Status()),
@@ -80,20 +77,6 @@ func (r *BookingsRepository) Update(ctx context.Context, booking *models.Booking
 	}
 	if tag.RowsAffected() == 0 {
 		return models.ErrBookingNotFound
-	}
-	if _, err := tx.Exec(ctx, queryInsertBookingHistory,
-		booking.ID(),
-		oldStatus,
-		booking.Status(),
-		time.Now(),
-		reason,
-		initiator,
-	); err != nil {
-		return fmt.Errorf("обновление истории бронирования id=%d: %w", booking.ID(), err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return err
 	}
 
 	return nil
@@ -292,6 +275,11 @@ func (r *BookingsRepository) GetBookingHistoryCount(ctx context.Context, booking
 	}
 
 	return count, nil
+}
+
+func (r *BookingsRepository) AddHistoryTx(ctx context.Context, tx pgx.Tx, entry *models.BookingHistory) error {
+
+	return nil
 }
 
 // scanBooking сканирует одну строку в доменный объект Booking.
