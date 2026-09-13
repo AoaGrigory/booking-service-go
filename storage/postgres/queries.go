@@ -52,9 +52,32 @@ const (
 		GROUP BY resource_id
 		ORDER BY COUNT(*) DESC
 		LIMIT 5`
+
 	queryGetStatusInfo = `
 		SELECT status, COUNT(*) FROM bookings
 		WHERE created_at >= $1 AND created_at < ($2::date + INTERVAL '1 day')
 		GROUP BY status
 `
+	queryGetOrdersWithCancellationPending = `
+	SELECT id, status, user_id, resource_id, start_date, end_date, created_at, previous_status, cancellation_sent_at
+	FROM bookings
+	WHERE status = 'cancellation_pending' AND cancellation_sent_at < $1
+	ORDER BY created_at ASC
+	LIMIT $2`
+
+	queryInsertBookingHistory = `
+	INSERT INTO booking_history(booking_id, previous_status, new_status, changed_at, reason, initiator)
+	VALUES ($1, $2, $3, $4, $5, $6)`
+
+	queryGetBookingHistoryByID = `
+	SELECT id ,booking_id, previous_status, new_status, changed_at, reason, initiator 
+	FROM booking_history
+	WHERE booking_id = $1
+	ORDER BY changed_at DESC 
+	LIMIT $2 OFFSET $3`
+
+	queryGetCountBookingHistory = `
+	SELECT COUNT(*) 
+	FROM booking_history
+	WHERE booking_id = $1`
 )

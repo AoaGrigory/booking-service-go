@@ -7,6 +7,7 @@ var (
 	ErrCannotCancelPastBooking = errors.New("нельзя отменить бронирование с прошедшей датой начала")
 	ErrInvalidUserID           = errors.New("некорректный ID пользователя")
 	ErrInvalidResourceID       = errors.New("некорректный ID ресурса")
+	ErrInvalidBookingID        = errors.New("некорректный ID бронирования")
 	ErrInvalidDateRange        = errors.New("некорректный диапазон дат")
 	ErrEndDateBeforeStartDate  = errors.New("дата окончания раньше даты начала")
 	ErrBookingNotFound         = errors.New("бронирование не найдено")

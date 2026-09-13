@@ -1,6 +1,7 @@
 package main
 
 import (
+	"booking-service/app/worker"
 	"context"
 	"errors"
 	"fmt"
@@ -95,6 +96,8 @@ func main() {
 		logger.Error("не удалось запустить consumer", zap.Error(err))
 		os.Exit(1)
 	}
+	cancellationRetryWorker := worker.NewCancellationRetryWorker(repo, publisher, cfg.Worker.CancellationRetryTimeout, cfg.Worker.CancellationRetryInterval, cfg.Worker.CancellationRetryBatch, logger)
+	go cancellationRetryWorker.Run(ctx)
 
 	// HTTP-хендлеры и роутер
 	bookingsHandler := handler.NewBookingsHandler(bookingsService, bookingsQueries, logger)
