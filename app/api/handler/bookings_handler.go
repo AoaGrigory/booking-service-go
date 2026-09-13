@@ -16,6 +16,8 @@ import (
 	"booking-service/app/models"
 )
 
+const maxPageSize = 100
+
 // BookingService определяет командные операции с бронированиями.
 type BookingService interface {
 	Create(ctx context.Context, req dto.CreateBookingRequest) (int64, error)
@@ -236,7 +238,10 @@ func parseIntQuery(r *http.Request, paramName string, def int64) (int64, error) 
 		return 0, err
 	}
 	if value <= 0 {
-		return 0, fmt.Errorf("%s должен быть больше 0", paramName)
+		return 0, fmt.Errorf("%s должен быть меньше 0", paramName)
+	}
+	if value > maxPageSize {
+		return def, fmt.Errorf("%s не должен быть больше 100", paramName)
 	}
 
 	return value, nil

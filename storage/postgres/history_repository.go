@@ -30,16 +30,17 @@ func (r *BookingsRepository) GetBookingHistory(ctx context.Context, bookingId in
 		if err != nil {
 			return nil, fmt.Errorf("ошибка в GetBookingHistory при чтении %d: %w", bookingId, err)
 		}
-		var ps models.BookingStatus
+		var ps *models.BookingStatus
 		if previousStatus != nil {
-			ps = models.BookingStatus(*previousStatus)
+			status := models.BookingStatus(*previousStatus)
+			ps = &status
 		}
-		var r string
+		var reasonValue string
 		if reason != nil {
-			r = *reason
+			reasonValue = *reason
 		}
 
-		history = append(history, *models.RestoreBookingHistory(id, bookingID, ps, models.BookingStatus(newStatus), changedAt, r, initiator))
+		history = append(history, *models.RestoreBookingHistory(id, bookingID, ps, models.BookingStatus(newStatus), changedAt, reasonValue, initiator))
 	}
 
 	return history, rows.Err()
@@ -59,8 +60,8 @@ func (r *BookingsRepository) GetBookingHistoryCount(ctx context.Context, booking
 func (r *BookingsRepository) AddHistoryTx(ctx context.Context, tx pgx.Tx, entry *models.BookingHistory) error {
 
 	var previousStatus *string
-	if entry.PreviousStatus() != "" {
-		s := string(entry.PreviousStatus())
+	if entry.PreviousStatus() != nil {
+		s := string(*entry.PreviousStatus())
 		previousStatus = &s
 	}
 	if _, err := tx.Exec(ctx, queryInsertBookingHistory,

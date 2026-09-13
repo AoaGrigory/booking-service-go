@@ -17,6 +17,8 @@ import (
 //
 // Этот сервис -- оркестратор: он координирует домен и репозиторий,
 // но НЕ содержит бизнес-правила (они в models.Booking).
+const InitiatorSystem = "System"
+
 type BookingsService struct {
 	repo      models.BookingRepository
 	publisher *messaging.Publisher
@@ -71,7 +73,7 @@ func (s *BookingsService) Create(ctx context.Context, req dto.CreateBookingReque
 
 	entry, err := models.NewBookingHistory(
 		id,
-		"",
+		nil,
 		booking.Status(),
 		reason,
 		initiator,
@@ -126,7 +128,7 @@ func (s *BookingsService) Cancel(ctx context.Context, id int64) error {
 	}
 	entry, err := models.NewBookingHistory(
 		booking.ID(),
-		oldStatus,
+		&oldStatus,
 		booking.Status(),
 		reason,
 		initiator,
@@ -173,13 +175,13 @@ func (s *BookingsService) Confirm(ctx context.Context, id int64) error {
 	}
 	oldStatus := booking.Status()
 	reason := "confirm from Catalog"
-	initiator := "system"
+	initiator := InitiatorSystem
 	if err := booking.Confirm(); err != nil {
 		return err
 	}
 	entry, err := models.NewBookingHistory(
 		booking.ID(),
-		oldStatus,
+		&oldStatus,
 		booking.Status(),
 		reason,
 		initiator,
@@ -222,13 +224,13 @@ func (s *BookingsService) HandleCancelError(ctx context.Context, requestID strin
 
 	oldStatus := booking.Status()
 	reason := "cancellation rollback after error"
-	initiator := "system"
+	initiator := InitiatorSystem
 	if err := booking.RollbackCancellation(); err != nil {
 		return fmt.Errorf("роллбэк: %w", err)
 	}
 	entry, err := models.NewBookingHistory(
 		booking.ID(),
-		oldStatus,
+		&oldStatus,
 		booking.Status(),
 		reason,
 		initiator,
@@ -267,13 +269,13 @@ func (s *BookingsService) CompleteCancellation(ctx context.Context, id int64) er
 	}
 	oldStatus := booking.Status()
 	reason := "cancellation confirmed by Catalog"
-	initiator := "system"
+	initiator := InitiatorSystem
 	if err := booking.CompleteCancellation(); err != nil {
 		return fmt.Errorf("завершение отмены бронирования %d: %w", id, err)
 	}
 	entry, err := models.NewBookingHistory(
 		booking.ID(),
-		oldStatus,
+		&oldStatus,
 		booking.Status(),
 		reason,
 		initiator,

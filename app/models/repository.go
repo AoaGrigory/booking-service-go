@@ -34,12 +34,6 @@ type BookingRepository interface {
 	// GetBookingsWithStatusCancellationPending возвращает бронирования в статусе CancellationPending
 	GetBookingsWithStatusCancellationPending(ctx context.Context, threshold time.Time, limit int) ([]Booking, error)
 
-	// GetBookingHistory возвращает историю изменения статуса
-	GetBookingHistory(ctx context.Context, bookingID int64, limit, offset int) ([]BookingHistory, error)
-
-	// GetBookingHistoryCount возвращает количество бронирований из истории
-	GetBookingHistoryCount(ctx context.Context, bookingID int64) (int64, error)
-
 	// CreateTx сохраняет новое бронирование,возвращает присвоенный ID
 	// и сохраняет в историю
 	CreateTx(ctx context.Context, tx pgx.Tx, booking *Booking) (int64, error)
@@ -48,11 +42,17 @@ type BookingRepository interface {
 	// и сохраняет в историю
 	UpdateTx(ctx context.Context, tx pgx.Tx, booking *Booking) error
 
+	// BeginTx начинает транзакцию
+	BeginTx(ctx context.Context) (pgx.Tx, error)
+
 	// AddHistoryTx сохраняет в историю
 	AddHistoryTx(ctx context.Context, tx pgx.Tx, entry *BookingHistory) error
 
-	// BeginTx начинает транзакцию
-	BeginTx(ctx context.Context) (pgx.Tx, error)
+	// GetBookingHistory возвращает историю изменения статуса
+	GetBookingHistory(ctx context.Context, bookingID int64, limit, offset int) ([]BookingHistory, error)
+
+	// GetBookingHistoryCount возвращает количество бронирований из истории
+	GetBookingHistoryCount(ctx context.Context, bookingID int64) (int64, error)
 }
 
 // BookingFilter содержит параметры фильтрации и пагинации.

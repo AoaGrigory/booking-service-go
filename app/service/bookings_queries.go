@@ -118,6 +118,9 @@ func (q *BookingsQueries) GetStatistic(ctx context.Context, dateFrom, dateTo tim
 
 func (q *BookingsQueries) GetHistory(ctx context.Context, bookingId int64, req dto.GetBookingHistoryRequest) (dto.PagedResponse[dto.BookingHistoryResponse], error) {
 
+	if _, err := q.repo.GetByID(ctx, bookingId); err != nil {
+		return dto.PagedResponse[dto.BookingHistoryResponse]{}, err
+	}
 	page := req.Page
 	if page <= 0 {
 		page = 1
@@ -139,13 +142,14 @@ func (q *BookingsQueries) GetHistory(ctx context.Context, bookingId int64, req d
 		return dto.PagedResponse[dto.BookingHistoryResponse]{}, err
 	}
 	for _, val := range booking {
+		ps := val.PreviousStatus()
 		var previousStatus *string
-		if val.PreviousStatus() != "" {
-			s := string(val.PreviousStatus())
+		if ps != nil {
+			s := string(*ps)
 			previousStatus = &s
 		}
 		historyDto := dto.BookingHistoryResponse{
-			ID:             val.GetID(),
+			ID:             val.ID(),
 			BookingID:      val.BookingID(),
 			PreviousStatus: previousStatus,
 			NewStatus:      string(val.NewStatus()),
