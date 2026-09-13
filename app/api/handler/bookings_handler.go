@@ -240,8 +240,10 @@ func parseIntQuery(r *http.Request, paramName string, def int64) (int64, error) 
 	if value <= 0 {
 		return 0, fmt.Errorf("%s должен быть меньше 0", paramName)
 	}
-	if value > maxPageSize {
-		return def, fmt.Errorf("%s не должен быть больше 100", paramName)
+	if valueStr == "size" {
+		if value >= maxPageSize {
+			return def, fmt.Errorf("%s не должен быть больше 100", paramName)
+		}
 	}
 
 	return value, nil

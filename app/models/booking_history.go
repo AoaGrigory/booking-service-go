@@ -20,7 +20,7 @@ func (b *BookingHistory) ChangedAt() time.Time           { return b.changedAt }
 func (b *BookingHistory) Reason() string                 { return b.reason }
 func (b *BookingHistory) Initiator() string              { return b.initiator }
 
-func NewBookingHistory(bookingID int64, previousStatus *BookingStatus, newStatus BookingStatus, reason, initiator string) (*BookingHistory, error) {
+func NewBookingHistory(bookingID int64, previousStatus *BookingStatus, newStatus BookingStatus, changedAt time.Time, reason, initiator string) (*BookingHistory, error) {
 	if bookingID <= 0 {
 		return nil, ErrInvalidBookingID
 	}
@@ -32,7 +32,7 @@ func NewBookingHistory(bookingID int64, previousStatus *BookingStatus, newStatus
 		bookingID:      bookingID,
 		previousStatus: previousStatus,
 		newStatus:      newStatus,
-		changedAt:      time.Time{},
+		changedAt:      changedAt,
 		reason:         reason,
 		initiator:      initiator,
 	}, nil

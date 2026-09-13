@@ -75,6 +75,7 @@ func (s *BookingsService) Create(ctx context.Context, req dto.CreateBookingReque
 		id,
 		nil,
 		booking.Status(),
+		time.Now().UTC(),
 		reason,
 		initiator,
 	)
@@ -130,6 +131,7 @@ func (s *BookingsService) Cancel(ctx context.Context, id int64) error {
 		booking.ID(),
 		&oldStatus,
 		booking.Status(),
+		time.Now().UTC(),
 		reason,
 		initiator,
 	)
@@ -183,6 +185,7 @@ func (s *BookingsService) Confirm(ctx context.Context, id int64) error {
 		booking.ID(),
 		&oldStatus,
 		booking.Status(),
+		time.Now().UTC(),
 		reason,
 		initiator,
 	)
@@ -232,6 +235,7 @@ func (s *BookingsService) HandleCancelError(ctx context.Context, requestID strin
 		booking.ID(),
 		&oldStatus,
 		booking.Status(),
+		time.Now().UTC(),
 		reason,
 		initiator,
 	)
@@ -277,6 +281,7 @@ func (s *BookingsService) CompleteCancellation(ctx context.Context, id int64) er
 		booking.ID(),
 		&oldStatus,
 		booking.Status(),
+		time.Now().UTC(),
 		reason,
 		initiator,
 	)
