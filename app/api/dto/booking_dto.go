@@ -1,6 +1,8 @@
 package dto
 
-import "time"
+import (
+	"time"
+)
 
 // CreateBookingRequest -- запрос на создание бронирования.
 type CreateBookingRequest struct {
@@ -54,6 +56,20 @@ type GetBookingsByFilterRequest struct {
 	Status     *string `json:"status,omitempty"`
 	Page       int     `json:"page"`
 	Size       int     `json:"size"`
+}
+
+type BookingHistoryResponse struct {
+	ID             int64   `json:"id"`
+	BookingID      int64   `json:"bookingId"`
+	PreviousStatus *string `json:"previousStatus"`
+	NewStatus      string  `json:"newStatus"`
+	ChangedAt      string  `json:"changedAt"`
+	Reason         string  `json:"reason"`
+	Initiator      string  `json:"initiator"`
+}
+type GetBookingHistoryRequest struct {
+	Page int `json:"page"`
+	Size int `json:"size"`
 }
 
 // PagedResponse -- ответ с пагинацией.

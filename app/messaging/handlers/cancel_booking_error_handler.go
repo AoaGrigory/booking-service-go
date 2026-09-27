@@ -2,9 +2,11 @@ package handlers
 
 import (
 	"booking-service/app/messaging"
+	"booking-service/app/models"
 	"booking-service/app/service"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go.uber.org/zap"
 )
@@ -25,12 +27,30 @@ func (h *BookingErrorHandler) Handle(ctx context.Context, body []byte) error {
 	if err := json.Unmarshal(body, &event); err != nil {
 		return fmt.Errorf("десериализация BookingErrorHandler: %w", err)
 	}
+	if event.EventId == "" {
+		return fmt.Errorf("eventID пустой")
+	}
+	check, err := h.service.CheckProcessEvent(ctx, event.EventId)
+	if err != nil {
+		return fmt.Errorf("проверка идемпотентности %s: %w", event.EventId, err)
+	}
+	if check {
+		h.logger.Warn("дубликат подтверждения бронирования ",
+			zap.String("eventID", event.EventId))
+		return nil
+	}
 
-	if err := h.service.HandleCancelError(ctx, event.RequestId); err != nil {
-		return fmt.Errorf("rollback бронирования %s: %w", event.RequestId, err)
+	if err := h.service.HandleCancelErrorFromEvent(ctx, event.EventId, event.RequestId); err != nil {
+		if errors.Is(err, models.ErrProcessEvent) {
+			h.logger.Warn("дубликат события ошибки отмены",
+				zap.String("eventID", event.EventId))
+			return nil
+		}
+		return fmt.Errorf("обработка ошибки отмены события %s: %w", event.EventId, err)
+
 	}
 	h.logger.Info("получено сообщение об ошибке отмены",
-		zap.String("requsetId", event.RequestId))
+		zap.String("requestId", event.RequestId))
 
 	return nil
 

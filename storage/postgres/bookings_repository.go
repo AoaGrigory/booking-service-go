@@ -22,10 +22,14 @@ func NewBookingsRepository(pool *pgxpool.Pool) *BookingsRepository {
 	return &BookingsRepository{pool: pool}
 }
 
-// Create сохраняет новое бронирование.
-func (r *BookingsRepository) Create(ctx context.Context, booking *models.Booking) (int64, error) {
+func (r *BookingsRepository) BeginTx(ctx context.Context) (pgx.Tx, error) {
+	return r.pool.Begin(ctx)
+}
+
+// CreateTx сохраняет новое бронирование.
+func (r *BookingsRepository) CreateTx(ctx context.Context, tx pgx.Tx, booking *models.Booking) (int64, error) {
 	var id int64
-	err := r.pool.QueryRow(ctx, queryInsertBooking,
+	err := tx.QueryRow(ctx, queryInsertBooking,
 		string(booking.Status()),
 		booking.UserID(),
 		booking.ResourceID(),
@@ -54,15 +58,26 @@ func (r *BookingsRepository) GetByID(ctx context.Context, id int64) (*models.Boo
 	return booking, nil
 }
 
-// Update обновляет статус бронирования.
-func (r *BookingsRepository) Update(ctx context.Context, booking *models.Booking) error {
+func (r *BookingsRepository) GetByIDTx(ctx context.Context, tx pgx.Tx, id int64) (*models.Booking, error) {
+	booking, err := r.scanBooking(tx.QueryRow(ctx, queryGetBookingByID, id))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, models.ErrBookingNotFound
+		}
+		return nil, fmt.Errorf("получение бронирования id=%d: %w", id, err)
+	}
+	return booking, nil
+}
+
+// UpdateTx обновляет статус бронирования.
+func (r *BookingsRepository) UpdateTx(ctx context.Context, tx pgx.Tx, booking *models.Booking) error {
 	var ps *string
 	if v := booking.PreviousStatus(); v != "" {
 		s := string(v)
 		ps = &s
 	}
 
-	tag, err := r.pool.Exec(ctx, queryUpdateBookingStatus,
+	tag, err := tx.Exec(ctx, queryUpdateBookingStatus,
 		string(booking.Status()),
 		ps,
 		booking.CancellationSentAt(),
@@ -74,6 +89,7 @@ func (r *BookingsRepository) Update(ctx context.Context, booking *models.Booking
 	if tag.RowsAffected() == 0 {
 		return models.ErrBookingNotFound
 	}
+
 	return nil
 }
 
@@ -206,6 +222,26 @@ func (r *BookingsRepository) GetOrdersTopFiveResource(ctx context.Context, dateF
 	}
 
 	return topFive, nil
+
+}
+
+// GetBookingsWithStatusCancellationPending возвращает бронирования в статусе CancellationPending
+func (r *BookingsRepository) GetBookingsWithStatusCancellationPending(ctx context.Context, threshold time.Time, limit int) ([]models.Booking, error) {
+	rows, err := r.pool.Query(ctx, queryGetOrdersWithCancellationPending, threshold, limit)
+	if err != nil {
+		return nil, fmt.Errorf("проверка поиска по статусу cancellation_pending: %w", err)
+	}
+	defer rows.Close()
+	var bookings []models.Booking
+
+	for rows.Next() {
+		booking, err := r.scanBookingFromRows(rows)
+		if err != nil {
+			return nil, fmt.Errorf("итерация по проверке поиска по статусу cancellation_pending: %w", err)
+		}
+		bookings = append(bookings, *booking)
+	}
+	return bookings, rows.Err()
 
 }
 
