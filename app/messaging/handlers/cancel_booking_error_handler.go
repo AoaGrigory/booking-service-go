@@ -35,7 +35,7 @@ func (h *BookingErrorHandler) Handle(ctx context.Context, body []byte) error {
 		return fmt.Errorf("проверка идемпотентности %s: %w", event.EventId, err)
 	}
 	if check {
-		h.logger.Warn("дубликат подтверждения бронирования",
+		h.logger.Warn("дубликат подтверждения бронирования ",
 			zap.String("eventID", event.EventId))
 		return nil
 	}
