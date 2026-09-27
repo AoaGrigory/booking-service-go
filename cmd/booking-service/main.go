@@ -65,7 +65,7 @@ func main() {
 	publisher := messaging.NewPublisher(mqConn, cfg.RabbitMQ.ExchangeName, cfg.RabbitMQ.PublisherExchangeName, logger)
 
 	// Сервисный слой
-	bookingsService := service.NewBookingsService(repo, publisher, logger)
+	bookingsService := service.NewBookingsService(repo, publisher, logger, repo)
 	bookingsQueries := service.NewBookingsQueries(repo, logger)
 
 	// Catalog-клиент

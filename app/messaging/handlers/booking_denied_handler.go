@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"booking-service/app/models"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"go.uber.org/zap"
@@ -32,6 +34,10 @@ func (h *BookingDeniedHandler) Handle(ctx context.Context, body []byte) error {
 		return fmt.Errorf("десериализация BookingJobDenied: %w", err)
 	}
 
+	if event.EventId == "" {
+		return fmt.Errorf("eventID пустой")
+	}
+
 	bookingID, err := messaging.RequestIDToBookingID(event.RequestId)
 	if err != nil {
 		return fmt.Errorf("извлечение bookingId из RequestId: %w", err)
@@ -42,9 +48,25 @@ func (h *BookingDeniedHandler) Handle(ctx context.Context, body []byte) error {
 		zap.Int64("catalogJobId", event.Id),
 		zap.String("reason", event.Reason),
 	)
+	check, err := h.service.CheckProcessEvent(ctx, event.EventId)
+	if err != nil {
+		return fmt.Errorf("проверка идемпотентности %s: %w", event.EventId, err)
+	}
+	if check {
+		h.logger.Warn("дубликат отмены бронирования",
+			zap.Int64("bookingID", bookingID),
+			zap.String("eventID", event.EventId))
+		return nil
+	}
 
-	if err := h.service.Cancel(ctx, bookingID); err != nil {
-		return fmt.Errorf("отмена бронирования %d: %w", bookingID, err)
+	if err := h.service.CancelFromEvent(ctx, bookingID, event.EventId); err != nil {
+		if errors.Is(err, models.ErrProcessEvent) {
+			h.logger.Warn("дубликат отмены бронирования",
+				zap.Int64("bookingID", bookingID),
+				zap.String("eventID", event.EventId))
+			return nil
+		}
+		return fmt.Errorf("запущена отмена бронирования %d: %w", bookingID, err)
 	}
 
 	h.logger.Info("бронирование отменено через событие",

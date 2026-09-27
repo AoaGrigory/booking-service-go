@@ -8,10 +8,11 @@ import (
 
 // BookingRepository -- интерфейс репозитория бронирований.
 type BookingRepository interface {
-	Create(ctx context.Context, booking *Booking) (int64, error)
 
 	// GetByID возвращает бронирование по ID.
 	GetByID(ctx context.Context, id int64) (*Booking, error)
+
+	GetByIDTx(ctx context.Context, tx pgx.Tx, id int64) (*Booking, error)
 
 	// GetByFilter возвращает список бронирований с пагинацией.
 	GetByFilter(ctx context.Context, filter BookingFilter) ([]Booking, int64, error)

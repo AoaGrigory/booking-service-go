@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"strconv"
 	"time"
 
@@ -20,17 +21,19 @@ import (
 const InitiatorSystem = "System"
 
 type BookingsService struct {
-	repo      models.BookingRepository
-	publisher *messaging.Publisher
-	logger    *zap.Logger
+	repo        models.BookingRepository
+	publisher   *messaging.Publisher
+	logger      *zap.Logger
+	processRepo models.ProcessRepository
 }
 
 // NewBookingsService создаёт новый BookingsService.
-func NewBookingsService(repo models.BookingRepository, publisher *messaging.Publisher, logger *zap.Logger) *BookingsService {
+func NewBookingsService(repo models.BookingRepository, publisher *messaging.Publisher, logger *zap.Logger, processRepo models.ProcessRepository) *BookingsService {
 	return &BookingsService{
-		repo:      repo,
-		publisher: publisher,
-		logger:    logger,
+		repo:        repo,
+		publisher:   publisher,
+		logger:      logger,
+		processRepo: processRepo,
 	}
 }
 
@@ -117,7 +120,31 @@ func (s *BookingsService) Create(ctx context.Context, req dto.CreateBookingReque
 //  3. Сохранение обновлённого состояния
 //  4. Публикация команды в Catalog
 func (s *BookingsService) Cancel(ctx context.Context, id int64) error {
-	booking, err := s.repo.GetByID(ctx, id)
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("ошибка начала транзакции в Cancel: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := s.cancelTx(ctx, tx, id); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("ошибка при коммите в Cancel: %w", err)
+	}
+
+	if err := s.publisher.PublishCancelBookingJob(ctx, messaging.CancelBookingJobCommand{
+		EventId:   messaging.NewMessageID(),
+		RequestId: messaging.BookingIDToRequestID(id),
+	}); err != nil {
+		s.logger.Error("ошибка публикации CancelBookingJob", zap.Error(err), zap.Int64("bookingId", id))
+	}
+
+	return nil
+}
+
+func (s *BookingsService) cancelTx(ctx context.Context, tx pgx.Tx, id int64) error {
+	booking, err := s.repo.GetByIDTx(ctx, tx, id)
 	if err != nil {
 		return err
 	}
@@ -138,19 +165,31 @@ func (s *BookingsService) Cancel(ctx context.Context, id int64) error {
 	if err != nil {
 		return fmt.Errorf("ошибка создания истории в Cancel: %w", err)
 	}
-	tx, err := s.repo.BeginTx(ctx)
-	if err != nil {
-		return fmt.Errorf("ошибка начала транзакции в Cancel: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
 	if err := s.repo.UpdateTx(ctx, tx, booking); err != nil {
 		return fmt.Errorf("обновление бронирования: %w", err)
 	}
 	if err := s.repo.AddHistoryTx(ctx, tx, entry); err != nil {
 		return fmt.Errorf("добавление в историю в Cancel: %w", err)
 	}
+
+	return nil
+}
+
+func (s *BookingsService) CancelFromEvent(ctx context.Context, id int64, eventID string) error {
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("ошибка начала транзакции в CancelFromEvent: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := s.processRepo.AddProcessTx(ctx, tx, eventID); err != nil {
+		return fmt.Errorf("запись обработанного события: %w", err)
+	}
+	if err := s.cancelTx(ctx, tx, id); err != nil {
+		return fmt.Errorf("ошибка в транзакции cancelTx: %w", err)
+	}
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("ошибка при коммите в Cancel: %w", err)
+		return fmt.Errorf("ошибка при коммите в CancelFromEvent: %w", err)
 	}
 
 	if err := s.publisher.PublishCancelBookingJob(ctx, messaging.CancelBookingJobCommand{
@@ -166,7 +205,47 @@ func (s *BookingsService) Cancel(ctx context.Context, id int64) error {
 // Confirm подтверждает бронирование по ID.
 // Используется обработчиком событий RabbitMQ.
 func (s *BookingsService) Confirm(ctx context.Context, id int64) error {
-	booking, err := s.repo.GetByID(ctx, id)
+
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("ошибка начала транзакции в confirm: %w", err)
+	}
+
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := s.confirmTx(ctx, tx, id); err != nil {
+		return fmt.Errorf("ошибка в транзакции confirm: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("ошибка при коммите в confirm: %w", err)
+	}
+
+	s.logger.Info("бронирование подтверждено", zap.Int64("id", id))
+
+	return nil
+}
+
+func (s *BookingsService) ConfirmFromEvent(ctx context.Context, id int64, eventID string) error {
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("ошибка начала транзакции в ConfirmFromEvent: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := s.processRepo.AddProcessTx(ctx, tx, eventID); err != nil {
+		return fmt.Errorf("запись обработанного события: %w", err)
+	}
+	if err := s.confirmTx(ctx, tx, id); err != nil {
+		return fmt.Errorf("ошибка в транзакции confirm: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("ошибка при коммите в ConfirmFromEvent: %w", err)
+	}
+
+	return nil
+}
+
+func (s *BookingsService) confirmTx(ctx context.Context, tx pgx.Tx, id int64) error {
+	booking, err := s.repo.GetByIDTx(ctx, tx, id)
 	if err != nil {
 		return err
 	}
@@ -192,26 +271,24 @@ func (s *BookingsService) Confirm(ctx context.Context, id int64) error {
 	if err != nil {
 		return fmt.Errorf("ошибка создания истории в confirm: %w", err)
 	}
-	tx, err := s.repo.BeginTx(ctx)
-	if err != nil {
-		return fmt.Errorf("ошибка начала транзакции в confirm: %w", err)
-	}
-
-	defer func() { _ = tx.Rollback(ctx) }()
-
 	if err := s.repo.UpdateTx(ctx, tx, booking); err != nil {
 		return fmt.Errorf("обновление бронирования: %w", err)
 	}
 	if err := s.repo.AddHistoryTx(ctx, tx, entry); err != nil {
 		return fmt.Errorf("добавление в историю в confirm: %w", err)
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("ошибка при коммите в confirm: %w", err)
-	}
-
-	s.logger.Info("бронирование подтверждено", zap.Int64("id", id))
 
 	return nil
+}
+
+func (s *BookingsService) CheckProcessEvent(ctx context.Context, eventID string) (bool, error) {
+
+	check, err := s.processRepo.CheckProcess(ctx, eventID)
+	if err != nil {
+		return false, err
+	}
+
+	return check, nil
 }
 
 // HandleCancelError запускает роллбэк статуса
@@ -220,7 +297,27 @@ func (s *BookingsService) HandleCancelError(ctx context.Context, requestID strin
 	if err != nil {
 		return fmt.Errorf("некорректный requestID %s: %w", requestID, err)
 	}
-	booking, err := s.repo.GetByID(ctx, bookingId)
+
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("ошибка начала транзакции в HandleCancelError: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := s.rollbackCancellationTx(ctx, tx, bookingId); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("ошибка при коммите в HandleCancelError: %w", err)
+	}
+	s.logger.Info("Успешный роллбэк, статус возвращен",
+		zap.Int64("id", bookingId))
+
+	return nil
+}
+func (s *BookingsService) rollbackCancellationTx(ctx context.Context, tx pgx.Tx, bookingID int64) error {
+	booking, err := s.repo.GetByIDTx(ctx, tx, bookingID)
 	if err != nil {
 		return err
 	}
@@ -242,12 +339,6 @@ func (s *BookingsService) HandleCancelError(ctx context.Context, requestID strin
 	if err != nil {
 		return fmt.Errorf("ошибка создания истории в HandleCancelError: %w", err)
 	}
-	tx, err := s.repo.BeginTx(ctx)
-	if err != nil {
-		return fmt.Errorf("ошибка начала транзакции в HandleCancelError: %w", err)
-	}
-
-	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := s.repo.UpdateTx(ctx, tx, booking); err != nil {
 		return fmt.Errorf("обновление при роллбэке: %w", err)
@@ -255,12 +346,30 @@ func (s *BookingsService) HandleCancelError(ctx context.Context, requestID strin
 	if err := s.repo.AddHistoryTx(ctx, tx, entry); err != nil {
 		return fmt.Errorf("ошибка транзакции в HandleCancelError: %w", err)
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("ошибка при коммите в HandleCancelError: %w", err)
+	return nil
+}
+
+func (s *BookingsService) HandleCancelErrorFromEvent(ctx context.Context, eventID, requestID string) error {
+	bookingId, err := messaging.RequestIDToBookingID(requestID)
+	if err != nil {
+		return fmt.Errorf("некорректный requestID %s: %w", requestID, err)
 	}
-	s.logger.Info("Успешный роллбэк, статус возвращен",
-		zap.Int64("id", bookingId),
-		zap.String("status", string(booking.Status())))
+
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("ошибка начала транзакции в HandleCancelErrorFromEvent: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := s.processRepo.AddProcessTx(ctx, tx, eventID); err != nil {
+		return fmt.Errorf("запись обработанного события: %w", err)
+	}
+	if err := s.rollbackCancellationTx(ctx, tx, bookingId); err != nil {
+		return fmt.Errorf("ошибка в транзакции rollbackCancellationTx: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("ошибка при коммите в HandleCancelErrorFromEvent: %w", err)
+	}
 
 	return nil
 }

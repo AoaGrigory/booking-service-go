@@ -80,4 +80,12 @@ const (
 	SELECT COUNT(*) 
 	FROM booking_history
 	WHERE booking_id = $1`
+
+	queryCheckProcessByEventID = `
+	SELECT EXISTS(SELECT event_id FROM processed_events
+	WHERE event_id = $1)`
+
+	queryInsertEventID = `
+	INSERT INTO processed_events(event_id)
+	VALUES ($1)`
 )

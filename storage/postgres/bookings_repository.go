@@ -58,6 +58,17 @@ func (r *BookingsRepository) GetByID(ctx context.Context, id int64) (*models.Boo
 	return booking, nil
 }
 
+func (r *BookingsRepository) GetByIDTx(ctx context.Context, tx pgx.Tx, id int64) (*models.Booking, error) {
+	booking, err := r.scanBooking(tx.QueryRow(ctx, queryGetBookingByID, id))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, models.ErrBookingNotFound
+		}
+		return nil, fmt.Errorf("получение бронирования id=%d: %w", id, err)
+	}
+	return booking, nil
+}
+
 // UpdateTx обновляет статус бронирования.
 func (r *BookingsRepository) UpdateTx(ctx context.Context, tx pgx.Tx, booking *models.Booking) error {
 	var ps *string
