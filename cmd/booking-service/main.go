@@ -62,7 +62,18 @@ func main() {
 	}
 	defer mqConn.Close()
 
-	publisher := messaging.NewPublisher(mqConn, cfg.RabbitMQ.ExchangeName, cfg.RabbitMQ.PublisherExchangeName, logger)
+	err = mqConn.DeclareExchange(cfg.RabbitMQ.DomainEventsExchangeName)
+	if err != nil {
+		logger.Error("не удалось объявить exchange доменных событий", zap.Error(err))
+		os.Exit(1)
+	}
+	_, err = mqConn.DeclareAndBindQueue("booking-domain-events.booking-status-events", cfg.RabbitMQ.DomainEventsExchangeName, messaging.RoutingKeyBookingStatusChanged)
+	if err != nil {
+		logger.Error("не удалось создать или привязать очередь событий изменения статуса", zap.Error(err))
+		os.Exit(1)
+	}
+
+	publisher := messaging.NewPublisher(mqConn, cfg.RabbitMQ.ExchangeName, cfg.RabbitMQ.PublisherExchangeName, cfg.RabbitMQ.DomainEventsExchangeName, logger)
 
 	// Сервисный слой
 	bookingsService := service.NewBookingsService(repo, publisher, logger, repo)

@@ -52,11 +52,12 @@ type WorkerConfig struct {
 }
 
 type RabbitMQConfig struct {
-	URL                   string `envconfig:"RABBITMQ_URL" default:"amqp://admin:admin@localhost:5672/"`
-	ExchangeName          string `envconfig:"RABBITMQ_EXCHANGE" default:"booking-service"`
-	PublisherExchangeName string `envconfig:"RABBITMQ_PUBLISHER_EXCHANGE" default:"booking-service-topics"`
-	QueuePrefix           string `envconfig:"RABBITMQ_QUEUE_PREFIX" default:"booking-service"`
-	PrefetchCount         int    `envconfig:"RABBITMQ_PREFETCH_COUNT" default:"10"`
+	URL                      string `envconfig:"RABBITMQ_URL" default:"amqp://admin:admin@localhost:5672/"`
+	ExchangeName             string `envconfig:"RABBITMQ_EXCHANGE" default:"booking-service"`
+	PublisherExchangeName    string `envconfig:"RABBITMQ_PUBLISHER_EXCHANGE" default:"booking-service-topics"`
+	QueuePrefix              string `envconfig:"RABBITMQ_QUEUE_PREFIX" default:"booking-service"`
+	PrefetchCount            int    `envconfig:"RABBITMQ_PREFETCH_COUNT" default:"10"`
+	DomainEventsExchangeName string `envconfig:"RABBITMQ_DOMAIN_EVENTS_EXCHANGE" default:"booking-domain-events"`
 }
 
 func (p PostgresConfig) DSN() string {
