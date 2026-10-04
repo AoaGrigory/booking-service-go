@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"booking-service/app/models"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"go.uber.org/zap"
@@ -32,6 +34,10 @@ func (h *BookingConfirmedHandler) Handle(ctx context.Context, body []byte) error
 		return fmt.Errorf("десериализация BookingJobConfirmed: %w", err)
 	}
 
+	if event.EventId == "" {
+		return fmt.Errorf("eventID пустой")
+	}
+
 	bookingID, err := messaging.RequestIDToBookingID(event.RequestId)
 	if err != nil {
 		return fmt.Errorf("извлечение bookingId из RequestId: %w", err)
@@ -41,8 +47,23 @@ func (h *BookingConfirmedHandler) Handle(ctx context.Context, body []byte) error
 		zap.Int64("bookingId", bookingID),
 		zap.Int64("catalogJobId", event.Id),
 	)
-
-	if err := h.service.Confirm(ctx, bookingID); err != nil {
+	check, err := h.service.CheckProcessEvent(ctx, event.EventId)
+	if err != nil {
+		return fmt.Errorf("проверка идемпотентности %s: %w", event.EventId, err)
+	}
+	if check {
+		h.logger.Warn("дубликат подтверждения бронирования",
+			zap.Int64("bookingID", bookingID),
+			zap.String("eventID", event.EventId))
+		return nil
+	}
+	if err := h.service.ConfirmFromEvent(ctx, bookingID, event.EventId); err != nil {
+		if errors.Is(err, models.ErrProcessEvent) {
+			h.logger.Warn("дубликат подтверждения бронирования",
+				zap.Int64("bookingID", bookingID),
+				zap.String("eventID", event.EventId))
+			return nil
+		}
 		return fmt.Errorf("подтверждение бронирования %d: %w", bookingID, err)
 	}
 

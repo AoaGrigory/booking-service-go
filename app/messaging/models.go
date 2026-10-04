@@ -1,10 +1,12 @@
 package messaging
 
 import (
+	"booking-service/app/models"
 	"crypto/rand"
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // CreateBookingJobCommand -- команда на создание задания в Catalog.
@@ -60,6 +62,8 @@ const (
 	RoutingKeyCancelBookingJob = "BookingService.Catalog.Async.Api.Contracts.Requests.CancelBookingJobByRequestIdRequest, BookingService.Catalog.Async.Api.Contracts"
 )
 
+const RoutingKeyBookingStatusChanged = "BookingService.Booking.Events.BookingStatusChangedEvent, BookingService.Booking.Events"
+
 // NewMessageID генерирует случайный UUID v4.
 func NewMessageID() string {
 	b := make([]byte, 16)
@@ -86,4 +90,12 @@ func RequestIDToBookingID(requestID string) (int64, error) {
 		return 0, fmt.Errorf("невозможно извлечь bookingId из RequestId %s: %w", requestID, err)
 	}
 	return id, nil
+}
+
+type BookingStatusChangedEvent struct {
+	BookingID int64
+	OldStatus models.BookingStatus
+	NewStatus models.BookingStatus
+	ChangedAt time.Time
+	Reason    string
 }
