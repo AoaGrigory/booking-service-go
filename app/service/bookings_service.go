@@ -133,16 +133,8 @@ func (s *BookingsService) Cancel(ctx context.Context, id int64) error {
 		return err
 	}
 
-	payload, err := json.Marshal(event)
-	if err != nil {
-		return fmt.Errorf("сериализация события изменения статуса: %w", err)
-	}
-	message := models.OutboxMessage{
-		Payload: payload,
-	}
-	err = s.outboxRepo.AddTx(ctx, tx, message)
-	if err != nil {
-		return fmt.Errorf("ошибка в транзакции Cancel при добавлении в outbox: %w", err)
+	if err := s.saveToOutboxTx(ctx, tx, event); err != nil {
+		return err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -215,16 +207,8 @@ func (s *BookingsService) CancelFromEvent(ctx context.Context, id int64, eventID
 		return fmt.Errorf("ошибка в транзакции cancelTx: %w", err)
 	}
 
-	payload, err := json.Marshal(event)
-	if err != nil {
-		return fmt.Errorf("сериализация события изменения статуса: %w", err)
-	}
-	message := models.OutboxMessage{
-		Payload: payload,
-	}
-	err = s.outboxRepo.AddTx(ctx, tx, message)
-	if err != nil {
-		return fmt.Errorf("ошибка в транзакции CancelFromEvent при добавлении в outbox: %w", err)
+	if err := s.saveToOutboxTx(ctx, tx, event); err != nil {
+		return err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -255,16 +239,8 @@ func (s *BookingsService) Confirm(ctx context.Context, id int64) error {
 	if err != nil {
 		return fmt.Errorf("ошибка в транзакции confirm: %w", err)
 	}
-	payload, err := json.Marshal(event)
-	if err != nil {
-		return fmt.Errorf("сериализация события изменения статуса: %w", err)
-	}
-	message := models.OutboxMessage{
-		Payload: payload,
-	}
-	err = s.outboxRepo.AddTx(ctx, tx, message)
-	if err != nil {
-		return fmt.Errorf("ошибка в транзакции confirm при добавлении в outbox: %w", err)
+	if err := s.saveToOutboxTx(ctx, tx, event); err != nil {
+		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("ошибка при коммите в confirm: %w", err)
@@ -290,16 +266,8 @@ func (s *BookingsService) ConfirmFromEvent(ctx context.Context, id int64, eventI
 		return fmt.Errorf("ошибка в транзакции confirm: %w", err)
 	}
 
-	payload, err := json.Marshal(event)
-	if err != nil {
-		return fmt.Errorf("сериализация события изменения статуса: %w", err)
-	}
-	message := models.OutboxMessage{
-		Payload: payload,
-	}
-	err = s.outboxRepo.AddTx(ctx, tx, message)
-	if err != nil {
-		return fmt.Errorf("ошибка в транзакции ConfirmFromEvent при добавлении в outbox: %w", err)
+	if err := s.saveToOutboxTx(ctx, tx, event); err != nil {
+		return err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -383,15 +351,15 @@ func (s *BookingsService) HandleCancelError(ctx context.Context, requestID strin
 		return err
 	}
 
+	if err := s.saveToOutboxTx(ctx, tx, event); err != nil {
+		return err
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("ошибка при коммите в HandleCancelError: %w", err)
 	}
 	s.logger.Info("Успешный роллбэк, статус возвращен",
 		zap.Int64("id", bookingId))
-
-	if err = s.publisher.PublishBookingStatusChanged(ctx, *event); err != nil {
-		return fmt.Errorf("публикация изменения статуса бронирования %d после коммита: %w", bookingId, err)
-	}
 
 	return nil
 }
@@ -457,13 +425,15 @@ func (s *BookingsService) HandleCancelErrorFromEvent(ctx context.Context, eventI
 	if err != nil {
 		return fmt.Errorf("ошибка в транзакции rollbackCancellationTx: %w", err)
 	}
+
+	if err := s.saveToOutboxTx(ctx, tx, event); err != nil {
+		return err
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("ошибка при коммите в HandleCancelErrorFromEvent: %w", err)
 	}
 
-	if err = s.publisher.PublishBookingStatusChanged(ctx, *event); err != nil {
-		return fmt.Errorf("публикация изменения статуса бронирования %d после коммита: %w", bookingId, err)
-	}
 	return nil
 }
 
@@ -512,16 +482,8 @@ func (s *BookingsService) CompleteCancellation(ctx context.Context, id int64) er
 		return fmt.Errorf("ошибка транзакции в CompleteCancellation: %w", err)
 	}
 
-	payload, err := json.Marshal(event)
-	if err != nil {
-		return fmt.Errorf("сериализация события изменения статуса: %w", err)
-	}
-	message := models.OutboxMessage{
-		Payload: payload,
-	}
-	err = s.outboxRepo.AddTx(ctx, tx, message)
-	if err != nil {
-		return fmt.Errorf("ошибка в транзакции CompleteCancellation при добавлении в outbox: %w", err)
+	if err := s.saveToOutboxTx(ctx, tx, event); err != nil {
+		return err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -531,5 +493,21 @@ func (s *BookingsService) CompleteCancellation(ctx context.Context, id int64) er
 		zap.Int64("id", id),
 		zap.String("status", string(booking.Status())))
 
+	return nil
+}
+
+// saveToOutboxTx сохраняет событие в транзакции изменения бронирования.
+// EventId сохраняется в payload и не меняется при повторной отправке.
+func (s *BookingsService) saveToOutboxTx(ctx context.Context, tx pgx.Tx, event *messaging.BookingStatusChangedEvent) error {
+	if event.EventId == "" {
+		event.EventId = messaging.NewMessageID()
+	}
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("сериализация события изменения статуса: %w", err)
+	}
+	if err := s.outboxRepo.AddTx(ctx, tx, models.OutboxMessage{Payload: payload}); err != nil {
+		return fmt.Errorf("сохранение события изменения статуса в outbox: %w", err)
+	}
 	return nil
 }

@@ -23,8 +23,12 @@ func (r *OutboxRepository) AddTx(ctx context.Context, tx pgx.Tx, outboxMessage m
 	return nil
 }
 
-func (r *OutboxRepository) GetPending(ctx context.Context) ([]models.OutboxMessage, error) {
-	rows, err := r.pool.Query(ctx, queryGetOutboxMessage)
+func (r *OutboxRepository) BeginTx(ctx context.Context) (pgx.Tx, error) {
+	return r.pool.Begin(ctx)
+}
+
+func (r *OutboxRepository) GetPending(ctx context.Context, tx pgx.Tx, limit int) ([]models.OutboxMessage, error) {
+	rows, err := tx.Query(ctx, queryGetOutboxMessage, limit)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка при получении outbox: %w", err)
 	}
@@ -54,9 +58,9 @@ func (r *OutboxRepository) GetPending(ctx context.Context) ([]models.OutboxMessa
 	return messages, nil
 }
 
-func (r *OutboxRepository) MarkSent(ctx context.Context, id int64) error {
+func (r *OutboxRepository) MarkSent(ctx context.Context, tx pgx.Tx, id int64) error {
 
-	_, err := r.pool.Exec(ctx, queryUpdateOutboxMessage, id)
+	_, err := tx.Exec(ctx, queryUpdateOutboxMessage, id)
 	if err != nil {
 		return fmt.Errorf("ошибка в MarkSent при апдейте outbox: %w", err)
 	}
@@ -64,9 +68,9 @@ func (r *OutboxRepository) MarkSent(ctx context.Context, id int64) error {
 	return nil
 }
 
-func (r *OutboxRepository) RecordFailure(ctx context.Context, id int64, lastError string, maxAttempts int) error {
+func (r *OutboxRepository) RecordFailure(ctx context.Context, tx pgx.Tx, id int64, lastError string, maxAttempts int) error {
 
-	_, err := r.pool.Exec(ctx, queryRecordFailureOutboxMessage, id, lastError, maxAttempts)
+	_, err := tx.Exec(ctx, queryRecordFailureOutboxMessage, id, lastError, maxAttempts)
 	if err != nil {
 		return fmt.Errorf("ошибка в RecordFailure при апдейте outbox: %w", err)
 	}

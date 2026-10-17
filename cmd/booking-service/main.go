@@ -112,7 +112,7 @@ func main() {
 	cancellationRetryWorker := worker.NewCancellationRetryWorker(repo, publisher, cfg.Worker.CancellationRetryTimeout, cfg.Worker.CancellationRetryInterval, cfg.Worker.CancellationRetryBatch, logger)
 	go cancellationRetryWorker.Run(ctx)
 
-	outboxWorker := worker.NewOutboxWorker(outbox, publisher, cfg.Worker.OutboxInterval, cfg.Worker.OutboxMaxAttempts, logger)
+	outboxWorker := worker.NewOutboxWorker(outbox, publisher, cfg.Worker.OutboxInterval, cfg.Worker.OutboxMaxAttempts, cfg.Worker.OutboxBatchSize, logger)
 	go outboxWorker.Run(ctx)
 
 	// HTTP-хендлеры и роутер

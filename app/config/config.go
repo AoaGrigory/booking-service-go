@@ -51,6 +51,7 @@ type WorkerConfig struct {
 	CancellationRetryBatch    int           `envconfig:"WORKER_CANCELLATION_BATCH" default:"10"`
 	OutboxInterval            time.Duration `envconfig:"WORKER_OUTBOX_INTERVAL" default:"5s"`
 	OutboxMaxAttempts         int           `envconfig:"WORKER_OUTBOX_MAX_ATTEMPTS" default:"5"`
+	OutboxBatchSize           int           `envconfig:"WORKER_OUTBOX_BATCH_SIZE" default:"100"`
 }
 
 type RabbitMQConfig struct {
@@ -84,6 +85,9 @@ func Load() (*Config, error) {
 	}
 	if cfg.Worker.OutboxInterval <= 0 {
 		return nil, fmt.Errorf("OutboxInterval должен быть больше нуля")
+	}
+	if cfg.Worker.OutboxBatchSize <= 0 {
+		return nil, fmt.Errorf("OutboxBatchSize должен быть больше нуля")
 	}
 	return &cfg, nil
 }

@@ -8,9 +8,11 @@ import (
 type OutboxRepository interface {
 	AddTx(ctx context.Context, tx pgx.Tx, outboxMessage OutboxMessage) error
 
-	GetPending(ctx context.Context) ([]OutboxMessage, error)
+	BeginTx(ctx context.Context) (pgx.Tx, error)
 
-	MarkSent(ctx context.Context, id int64) error
+	GetPending(ctx context.Context, tx pgx.Tx, limit int) ([]OutboxMessage, error)
 
-	RecordFailure(ctx context.Context, id int64, lastError string, maxAttempts int) error
+	MarkSent(ctx context.Context, tx pgx.Tx, id int64) error
+
+	RecordFailure(ctx context.Context, tx pgx.Tx, id int64, lastError string, maxAttempts int) error
 }

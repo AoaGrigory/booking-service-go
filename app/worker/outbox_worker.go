@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"go.uber.org/zap"
 	"time"
 )
@@ -15,15 +16,17 @@ type OutboxWorker struct {
 	publisher   *messaging.Publisher
 	interval    time.Duration
 	maxAttempts int
+	batchSize   int
 	logger      *zap.Logger
 }
 
-func NewOutboxWorker(repo models.OutboxRepository, publisher *messaging.Publisher, interval time.Duration, maxAttempts int, logger *zap.Logger) *OutboxWorker {
+func NewOutboxWorker(repo models.OutboxRepository, publisher *messaging.Publisher, interval time.Duration, maxAttempts, batchSize int, logger *zap.Logger) *OutboxWorker {
 	return &OutboxWorker{
 		repo:        repo,
 		publisher:   publisher,
 		interval:    interval,
 		maxAttempts: maxAttempts,
+		batchSize:   batchSize,
 		logger:      logger,
 	}
 }
@@ -48,46 +51,69 @@ func (w *OutboxWorker) Run(ctx context.Context) {
 }
 
 func (w *OutboxWorker) processBatch(ctx context.Context) {
-	messages, err := w.repo.GetPending(ctx)
+	tx, err := w.repo.BeginTx(ctx)
+	if err != nil {
+		w.logger.Error("начало транзакции outbox", zap.Error(err))
+		return
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+
+	messages, err := w.repo.GetPending(ctx, tx, w.batchSize)
 	if err != nil {
 		w.logger.Error("ошибка получения сообщения outbox", zap.Error(err))
 		return
 	}
+	if len(messages) == 0 {
+		return
+	}
+	success, failed := 0, 0
 	for _, mes := range messages {
-		if err := w.processMessage(ctx, mes); err != nil {
-			w.logger.Error("ошибка при итерации message в processBatch",
+		if ctx.Err() != nil {
+			return
+		}
+		sent, err := w.processMessage(ctx, tx, mes)
+		if err != nil {
+			w.logger.Error("сохранение результата обработки outbox; транзакция пачки будет отменена",
 				zap.Error(err),
 				zap.Int64("outboxID", mes.ID))
+			return
+		}
+		if sent {
+			success++
+		} else {
+			failed++
 		}
 	}
-	w.logger.Info("проход обработки outbox завершён")
+	if err := tx.Commit(ctx); err != nil {
+		w.logger.Error("коммит результатов обработки outbox", zap.Error(err))
+		return
+	}
+	w.logger.Info("проход обработки outbox завершён",
+		zap.Int("success", success), zap.Int("failed", failed))
 
 }
 
-func (w *OutboxWorker) processMessage(ctx context.Context, message models.OutboxMessage) error {
+func (w *OutboxWorker) processMessage(ctx context.Context, tx pgx.Tx, message models.OutboxMessage) (bool, error) {
 	var event messaging.BookingStatusChangedEvent
 	err := json.Unmarshal(message.Payload, &event)
+	if err == nil {
+		err = w.publisher.PublishBookingStatusChanged(ctx, event)
+	}
 	if err != nil {
-		saveErr := w.repo.RecordFailure(ctx, message.ID, err.Error(), w.maxAttempts)
+		w.logger.Error("не удалось отправить сообщение outbox",
+			zap.Int64("outboxID", message.ID), zap.Error(err))
+		saveErr := w.repo.RecordFailure(ctx, tx, message.ID, err.Error(), w.maxAttempts)
 		if saveErr != nil {
-			return saveErr
+			return false, fmt.Errorf("сохранение неудачной попытки (%v): %w", err, saveErr)
 		}
-		return fmt.Errorf("ошибка в processMessage: %w", err)
-	}
 
-	err = w.publisher.PublishBookingStatusChanged(ctx, event)
-	if err != nil {
-		saveErr := w.repo.RecordFailure(ctx, message.ID, err.Error(), w.maxAttempts)
-		if saveErr != nil {
-			return saveErr
-		}
-		return fmt.Errorf("ошибка при публикации в processMessage: %w", err)
+		return false, nil
 	}
-	err = w.repo.MarkSent(ctx, message.ID)
+	err = w.repo.MarkSent(ctx, tx, message.ID)
 	if err != nil {
 
-		return fmt.Errorf("отметка сообщения outbox как отправленного: %w", err)
+		return false, fmt.Errorf("отметка сообщения outbox как отправленного: %w", err)
 	}
 
-	return nil
+	return true, nil
 }

@@ -96,7 +96,9 @@ const (
 	queryGetOutboxMessage = `
 	SELECT id, payload, status, attempts, created_at, sent_at, last_error FROM outbox_messages
 	WHERE status = 'pending'
-	order by created_at, id`
+	ORDER BY created_at, id
+	LIMIT $1
+	FOR UPDATE SKIP LOCKED`
 
 	queryUpdateOutboxMessage = `
 	UPDATE outbox_messages
