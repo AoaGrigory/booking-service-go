@@ -93,6 +93,7 @@ func RequestIDToBookingID(requestID string) (int64, error) {
 }
 
 type BookingStatusChangedEvent struct {
+	EventId   string
 	BookingID int64
 	OldStatus models.BookingStatus
 	NewStatus models.BookingStatus
