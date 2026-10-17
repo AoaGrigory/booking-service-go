@@ -49,6 +49,8 @@ type WorkerConfig struct {
 	CancellationRetryTimeout  time.Duration `envconfig:"WORKER_CANCELLATION_TIMEOUT" default:"1h"`
 	CancellationRetryInterval time.Duration `envconfig:"WORKER_CANCELLATION_RETRY_INTERVAL" default:"60s"`
 	CancellationRetryBatch    int           `envconfig:"WORKER_CANCELLATION_BATCH" default:"10"`
+	OutboxInterval            time.Duration `envconfig:"WORKER_OUTBOX_INTERVAL" default:"5s"`
+	OutboxMaxAttempts         int           `envconfig:"WORKER_OUTBOX_MAX_ATTEMPTS" default:"5"`
 }
 
 type RabbitMQConfig struct {
@@ -76,6 +78,12 @@ func Load() (*Config, error) {
 	var cfg Config
 	if err := envconfig.Process("", &cfg); err != nil {
 		return nil, fmt.Errorf("загрузка конфигурации: %w", err)
+	}
+	if cfg.Worker.OutboxMaxAttempts <= 0 {
+		return nil, fmt.Errorf("OutboxMaxAttempts должен быть больше нуля")
+	}
+	if cfg.Worker.OutboxInterval <= 0 {
+		return nil, fmt.Errorf("OutboxInterval должен быть больше нуля")
 	}
 	return &cfg, nil
 }

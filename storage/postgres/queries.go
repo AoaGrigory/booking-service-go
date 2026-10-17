@@ -88,4 +88,31 @@ const (
 	queryInsertEventID = `
 	INSERT INTO processed_events(event_id)
 	VALUES ($1)`
+
+	queryInsertOutboxMessage = `
+	INSERT INTO outbox_messages(payload)
+	VALUES ($1)`
+
+	queryGetOutboxMessage = `
+	SELECT id, payload, status, attempts, created_at, sent_at, last_error FROM outbox_messages
+	WHERE status = 'pending'
+	order by created_at, id`
+
+	queryUpdateOutboxMessage = `
+	UPDATE outbox_messages
+	SET status = 'sent',
+	sent_at = NOW(),
+	last_error = NULL
+	WHERE id =$1`
+
+	queryRecordFailureOutboxMessage = `
+	UPDATE outbox_messages
+	SET attempts = attempts + 1,
+	    last_error = $2,
+	    status = CASE
+	        WHEN attempts + 1 >= $3 THEN 'failed'
+			ELSE 'pending'
+	END
+	WHERE id = $1
+`
 )

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	"strconv"
@@ -25,15 +26,17 @@ type BookingsService struct {
 	publisher   *messaging.Publisher
 	logger      *zap.Logger
 	processRepo models.ProcessRepository
+	outboxRepo  models.OutboxRepository
 }
 
 // NewBookingsService создаёт новый BookingsService.
-func NewBookingsService(repo models.BookingRepository, publisher *messaging.Publisher, logger *zap.Logger, processRepo models.ProcessRepository) *BookingsService {
+func NewBookingsService(repo models.BookingRepository, publisher *messaging.Publisher, logger *zap.Logger, processRepo models.ProcessRepository, outboxRepo models.OutboxRepository) *BookingsService {
 	return &BookingsService{
 		repo:        repo,
 		publisher:   publisher,
 		logger:      logger,
 		processRepo: processRepo,
+		outboxRepo:  outboxRepo,
 	}
 }
 
@@ -130,6 +133,18 @@ func (s *BookingsService) Cancel(ctx context.Context, id int64) error {
 		return err
 	}
 
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("сериализация события изменения статуса: %w", err)
+	}
+	message := models.OutboxMessage{
+		Payload: payload,
+	}
+	err = s.outboxRepo.AddTx(ctx, tx, message)
+	if err != nil {
+		return fmt.Errorf("ошибка в транзакции Cancel при добавлении в outbox: %w", err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("ошибка при коммите в Cancel: %w", err)
 	}
@@ -139,9 +154,6 @@ func (s *BookingsService) Cancel(ctx context.Context, id int64) error {
 		RequestId: messaging.BookingIDToRequestID(id),
 	}); err != nil {
 		s.logger.Error("ошибка публикации CancelBookingJob", zap.Error(err), zap.Int64("bookingId", id))
-	}
-	if err = s.publisher.PublishBookingStatusChanged(ctx, *event); err != nil {
-		return fmt.Errorf("публикация изменения статуса бронирования %d после коммита: %w", id, err)
 	}
 
 	return nil
@@ -202,6 +214,19 @@ func (s *BookingsService) CancelFromEvent(ctx context.Context, id int64, eventID
 	if err != nil {
 		return fmt.Errorf("ошибка в транзакции cancelTx: %w", err)
 	}
+
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("сериализация события изменения статуса: %w", err)
+	}
+	message := models.OutboxMessage{
+		Payload: payload,
+	}
+	err = s.outboxRepo.AddTx(ctx, tx, message)
+	if err != nil {
+		return fmt.Errorf("ошибка в транзакции CancelFromEvent при добавлении в outbox: %w", err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("ошибка при коммите в CancelFromEvent: %w", err)
 	}
@@ -212,9 +237,7 @@ func (s *BookingsService) CancelFromEvent(ctx context.Context, id int64, eventID
 	}); err != nil {
 		s.logger.Error("ошибка публикации CancelBookingJob", zap.Error(err), zap.Int64("bookingId", id))
 	}
-	if err = s.publisher.PublishBookingStatusChanged(ctx, *event); err != nil {
-		return fmt.Errorf("публикация изменения статуса бронирования %d после коммита: %w", id, err)
-	}
+
 	return nil
 }
 
@@ -232,11 +255,19 @@ func (s *BookingsService) Confirm(ctx context.Context, id int64) error {
 	if err != nil {
 		return fmt.Errorf("ошибка в транзакции confirm: %w", err)
 	}
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("сериализация события изменения статуса: %w", err)
+	}
+	message := models.OutboxMessage{
+		Payload: payload,
+	}
+	err = s.outboxRepo.AddTx(ctx, tx, message)
+	if err != nil {
+		return fmt.Errorf("ошибка в транзакции confirm при добавлении в outbox: %w", err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("ошибка при коммите в confirm: %w", err)
-	}
-	if err = s.publisher.PublishBookingStatusChanged(ctx, *event); err != nil {
-		return fmt.Errorf("публикация изменения статуса бронирования %d после коммита: %w", id, err)
 	}
 
 	s.logger.Info("бронирование подтверждено", zap.Int64("id", id))
@@ -258,11 +289,21 @@ func (s *BookingsService) ConfirmFromEvent(ctx context.Context, id int64, eventI
 	if err != nil {
 		return fmt.Errorf("ошибка в транзакции confirm: %w", err)
 	}
+
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("сериализация события изменения статуса: %w", err)
+	}
+	message := models.OutboxMessage{
+		Payload: payload,
+	}
+	err = s.outboxRepo.AddTx(ctx, tx, message)
+	if err != nil {
+		return fmt.Errorf("ошибка в транзакции ConfirmFromEvent при добавлении в outbox: %w", err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("ошибка при коммите в ConfirmFromEvent: %w", err)
-	}
-	if err = s.publisher.PublishBookingStatusChanged(ctx, *event); err != nil {
-		return fmt.Errorf("публикация изменения статуса бронирования %d после коммита: %w", id, err)
 	}
 
 	return nil
@@ -456,18 +497,6 @@ func (s *BookingsService) CompleteCancellation(ctx context.Context, id int64) er
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := s.repo.UpdateTx(ctx, tx, booking); err != nil {
-		return fmt.Errorf("обновление при отмене: %w", err)
-	}
-	if err := s.repo.AddHistoryTx(ctx, tx, entry); err != nil {
-		return fmt.Errorf("ошибка транзакции в CompleteCancellation: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("ошибка при коммите в CompleteCancellation: %w", err)
-	}
-	s.logger.Info("успешная отмена, статус изменен",
-		zap.Int64("id", id),
-		zap.String("status", string(booking.Status())))
 	event := &messaging.BookingStatusChangedEvent{
 		BookingID: booking.ID(),
 		OldStatus: oldStatus,
@@ -475,9 +504,32 @@ func (s *BookingsService) CompleteCancellation(ctx context.Context, id int64) er
 		ChangedAt: changedAt,
 		Reason:    reason,
 	}
-	if err = s.publisher.PublishBookingStatusChanged(ctx, *event); err != nil {
-		return fmt.Errorf("публикация изменения статуса бронирования %d после коммита: %w", id, err)
+
+	if err := s.repo.UpdateTx(ctx, tx, booking); err != nil {
+		return fmt.Errorf("обновление при отмене: %w", err)
 	}
+	if err := s.repo.AddHistoryTx(ctx, tx, entry); err != nil {
+		return fmt.Errorf("ошибка транзакции в CompleteCancellation: %w", err)
+	}
+
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("сериализация события изменения статуса: %w", err)
+	}
+	message := models.OutboxMessage{
+		Payload: payload,
+	}
+	err = s.outboxRepo.AddTx(ctx, tx, message)
+	if err != nil {
+		return fmt.Errorf("ошибка в транзакции CompleteCancellation при добавлении в outbox: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("ошибка при коммите в CompleteCancellation: %w", err)
+	}
+	s.logger.Info("успешная отмена, статус изменен",
+		zap.Int64("id", id),
+		zap.String("status", string(booking.Status())))
 
 	return nil
 }

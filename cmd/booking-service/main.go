@@ -74,9 +74,9 @@ func main() {
 	}
 
 	publisher := messaging.NewPublisher(mqConn, cfg.RabbitMQ.ExchangeName, cfg.RabbitMQ.PublisherExchangeName, cfg.RabbitMQ.DomainEventsExchangeName, logger)
-
+	outbox := pgstore.NewOutboxRepository(pool)
 	// Сервисный слой
-	bookingsService := service.NewBookingsService(repo, publisher, logger, repo)
+	bookingsService := service.NewBookingsService(repo, publisher, logger, repo, outbox)
 	bookingsQueries := service.NewBookingsQueries(repo, logger)
 
 	// Catalog-клиент
@@ -107,8 +107,13 @@ func main() {
 		logger.Error("не удалось запустить consumer", zap.Error(err))
 		os.Exit(1)
 	}
+
+	//Worker
 	cancellationRetryWorker := worker.NewCancellationRetryWorker(repo, publisher, cfg.Worker.CancellationRetryTimeout, cfg.Worker.CancellationRetryInterval, cfg.Worker.CancellationRetryBatch, logger)
 	go cancellationRetryWorker.Run(ctx)
+
+	outboxWorker := worker.NewOutboxWorker(outbox, publisher, cfg.Worker.OutboxInterval, cfg.Worker.OutboxMaxAttempts, logger)
+	go outboxWorker.Run(ctx)
 
 	// HTTP-хендлеры и роутер
 	bookingsHandler := handler.NewBookingsHandler(bookingsService, bookingsQueries, logger)
