@@ -8,12 +8,13 @@ import (
 )
 
 type Config struct {
-	App      AppConfig
-	HTTP     HTTPConfig
-	Postgres PostgresConfig
-	Catalog  CatalogConfig
-	Worker   WorkerConfig
-	RabbitMQ RabbitMQConfig
+	App          AppConfig
+	HTTP         HTTPConfig
+	Postgres     PostgresConfig
+	Catalog      CatalogConfig
+	Worker       WorkerConfig
+	RabbitMQ     RabbitMQConfig
+	Notification NotificationConfig
 }
 
 type AppConfig struct {
@@ -63,6 +64,13 @@ type RabbitMQConfig struct {
 	DomainEventsExchangeName string `envconfig:"RABBITMQ_DOMAIN_EVENTS_EXCHANGE" default:"booking-domain-events"`
 }
 
+type NotificationConfig struct {
+	BaseURL        string        `envconfig:"NOTIFICATION_BASE_URL" default:"http://localhost:9000"`
+	Timeout        time.Duration `envconfig:"NOTIFICATION_TIMEOUT" default:"10s"`
+	MaxRetries     int           `envconfig:"NOTIFICATION_MAX_RETRIES" default:"3"`
+	RetryBaseDelay time.Duration `envconfig:"NOTIFICATION_RETRY_BASE_DELAY" default:"1s"`
+}
+
 func (p PostgresConfig) DSN() string {
 	return fmt.Sprintf(
 		"postgres://%s:%s@%s:%d/%s?sslmode=%s",
@@ -89,5 +97,15 @@ func Load() (*Config, error) {
 	if cfg.Worker.OutboxBatchSize <= 0 {
 		return nil, fmt.Errorf("OutboxBatchSize должен быть больше нуля")
 	}
+	if cfg.Notification.MaxRetries < 0 {
+		return nil, fmt.Errorf("MaxRetries в Notification должен быть больше 0")
+	}
+	if cfg.Notification.Timeout <= 0 {
+		return nil, fmt.Errorf("Timeout в Notification должен быть больше нуля")
+	}
+	if cfg.Notification.RetryBaseDelay <= 0 {
+		return nil, fmt.Errorf("RetryBaseDelay должен быть больше нуля")
+	}
+
 	return &cfg, nil
 }

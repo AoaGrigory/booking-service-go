@@ -59,7 +59,7 @@ func (h *BookingDeniedHandler) Handle(ctx context.Context, body []byte) error {
 		return nil
 	}
 
-	if err := h.service.CancelFromEvent(ctx, bookingID, event.EventId); err != nil {
+	if err := h.service.CancelFromEvent(ctx, bookingID, event.EventId, event.Reason); err != nil {
 		if errors.Is(err, models.ErrProcessEvent) {
 			h.logger.Warn("дубликат отмены бронирования",
 				zap.Int64("bookingID", bookingID),

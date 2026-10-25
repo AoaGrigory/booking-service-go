@@ -1,6 +1,17 @@
 version: "3"
 
 services:
+
+  notification-mock:
+    image: wiremock/wiremock:latest
+    container_name: notification-service-mock
+    ports:
+      - "9000:8080"
+    volumes:
+      - ./notification-mock/mappings:/home/wiremock/mappings
+    command:
+      - --global-response-templating
+      - --verbose
   catalog-host:
     container_name: catalog-host
     image: ghcr.io/nazarovsa-mentorship/pet-booking-service-catalog/catalog-host:2.1.2

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"booking-service/app/clients/notification"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -19,24 +20,27 @@ import (
 //
 // Этот сервис -- оркестратор: он координирует домен и репозиторий,
 // но НЕ содержит бизнес-правила (они в models.Booking).
+
 const InitiatorSystem = "System"
 
 type BookingsService struct {
-	repo        models.BookingRepository
-	publisher   *messaging.Publisher
-	logger      *zap.Logger
-	processRepo models.ProcessRepository
-	outboxRepo  models.OutboxRepository
+	repo               models.BookingRepository
+	publisher          *messaging.Publisher
+	logger             *zap.Logger
+	processRepo        models.ProcessRepository
+	outboxRepo         models.OutboxRepository
+	notificationClient *notification.Client
 }
 
 // NewBookingsService создаёт новый BookingsService.
-func NewBookingsService(repo models.BookingRepository, publisher *messaging.Publisher, logger *zap.Logger, processRepo models.ProcessRepository, outboxRepo models.OutboxRepository) *BookingsService {
+func NewBookingsService(repo models.BookingRepository, publisher *messaging.Publisher, logger *zap.Logger, processRepo models.ProcessRepository, outboxRepo models.OutboxRepository, notificationClient *notification.Client) *BookingsService {
 	return &BookingsService{
-		repo:        repo,
-		publisher:   publisher,
-		logger:      logger,
-		processRepo: processRepo,
-		outboxRepo:  outboxRepo,
+		repo:               repo,
+		publisher:          publisher,
+		logger:             logger,
+		processRepo:        processRepo,
+		outboxRepo:         outboxRepo,
+		notificationClient: notificationClient,
 	}
 }
 
@@ -128,7 +132,7 @@ func (s *BookingsService) Cancel(ctx context.Context, id int64) error {
 		return fmt.Errorf("ошибка начала транзакции в Cancel: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	event, err := s.cancelTx(ctx, tx, id)
+	event, _, err := s.cancelTx(ctx, tx, id, "user requested cancellation")
 	if err != nil {
 		return err
 	}
@@ -151,17 +155,16 @@ func (s *BookingsService) Cancel(ctx context.Context, id int64) error {
 	return nil
 }
 
-func (s *BookingsService) cancelTx(ctx context.Context, tx pgx.Tx, id int64) (*messaging.BookingStatusChangedEvent, error) {
+func (s *BookingsService) cancelTx(ctx context.Context, tx pgx.Tx, id int64, reason string) (*messaging.BookingStatusChangedEvent, *notification.SendNotificationRequest, error) {
 	changedAt := time.Now().UTC()
 	booking, err := s.repo.GetByIDTx(ctx, tx, id)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	oldStatus := booking.Status()
-	reason := "user requested cancellation"
 	initiator := strconv.FormatInt(booking.UserID(), 10)
 	if err := booking.StartCancellation(changedAt); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	entry, err := models.NewBookingHistory(
 		booking.ID(),
@@ -172,13 +175,13 @@ func (s *BookingsService) cancelTx(ctx context.Context, tx pgx.Tx, id int64) (*m
 		initiator,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("ошибка создания истории в Cancel: %w", err)
+		return nil, nil, fmt.Errorf("ошибка создания истории в Cancel: %w", err)
 	}
 	if err := s.repo.UpdateTx(ctx, tx, booking); err != nil {
-		return nil, fmt.Errorf("обновление бронирования: %w", err)
+		return nil, nil, fmt.Errorf("обновление бронирования: %w", err)
 	}
 	if err := s.repo.AddHistoryTx(ctx, tx, entry); err != nil {
-		return nil, fmt.Errorf("добавление в историю в Cancel: %w", err)
+		return nil, nil, fmt.Errorf("добавление в историю в Cancel: %w", err)
 	}
 
 	event := &messaging.BookingStatusChangedEvent{
@@ -189,10 +192,17 @@ func (s *BookingsService) cancelTx(ctx context.Context, tx pgx.Tx, id int64) (*m
 		Reason:    reason,
 	}
 
-	return event, nil
+	notificationReq := &notification.SendNotificationRequest{
+		BookingID: booking.ID(),
+		UserID:    booking.UserID(),
+		Status:    string(booking.Status()),
+		Reason:    reason,
+	}
+
+	return event, notificationReq, nil
 }
 
-func (s *BookingsService) CancelFromEvent(ctx context.Context, id int64, eventID string) error {
+func (s *BookingsService) CancelFromEvent(ctx context.Context, id int64, eventID, reason string) error {
 	tx, err := s.repo.BeginTx(ctx)
 	if err != nil {
 		return fmt.Errorf("ошибка начала транзакции в CancelFromEvent: %w", err)
@@ -202,7 +212,7 @@ func (s *BookingsService) CancelFromEvent(ctx context.Context, id int64, eventID
 	if err := s.processRepo.AddProcessTx(ctx, tx, eventID); err != nil {
 		return fmt.Errorf("запись обработанного события: %w", err)
 	}
-	event, err := s.cancelTx(ctx, tx, id)
+	event, notificationReq, err := s.cancelTx(ctx, tx, id, reason)
 	if err != nil {
 		return fmt.Errorf("ошибка в транзакции cancelTx: %w", err)
 	}
@@ -214,7 +224,7 @@ func (s *BookingsService) CancelFromEvent(ctx context.Context, id int64, eventID
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("ошибка при коммите в CancelFromEvent: %w", err)
 	}
-
+	_ = s.notificationClient.SendNotification(ctx, *notificationReq)
 	if err := s.publisher.PublishCancelBookingJob(ctx, messaging.CancelBookingJobCommand{
 		EventId:   messaging.NewMessageID(),
 		RequestId: messaging.BookingIDToRequestID(id),
@@ -235,7 +245,7 @@ func (s *BookingsService) Confirm(ctx context.Context, id int64) error {
 	}
 
 	defer func() { _ = tx.Rollback(ctx) }()
-	event, err := s.confirmTx(ctx, tx, id)
+	event, notificationReq, err := s.confirmTx(ctx, tx, id)
 	if err != nil {
 		return fmt.Errorf("ошибка в транзакции confirm: %w", err)
 	}
@@ -245,6 +255,7 @@ func (s *BookingsService) Confirm(ctx context.Context, id int64) error {
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("ошибка при коммите в confirm: %w", err)
 	}
+	_ = s.notificationClient.SendNotification(ctx, *notificationReq)
 
 	s.logger.Info("бронирование подтверждено", zap.Int64("id", id))
 
@@ -261,7 +272,7 @@ func (s *BookingsService) ConfirmFromEvent(ctx context.Context, id int64, eventI
 	if err := s.processRepo.AddProcessTx(ctx, tx, eventID); err != nil {
 		return fmt.Errorf("запись обработанного события: %w", err)
 	}
-	event, err := s.confirmTx(ctx, tx, id)
+	event, notificationReq, err := s.confirmTx(ctx, tx, id)
 	if err != nil {
 		return fmt.Errorf("ошибка в транзакции confirm: %w", err)
 	}
@@ -273,15 +284,16 @@ func (s *BookingsService) ConfirmFromEvent(ctx context.Context, id int64, eventI
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("ошибка при коммите в ConfirmFromEvent: %w", err)
 	}
+	_ = s.notificationClient.SendNotification(ctx, *notificationReq)
 
 	return nil
 }
 
-func (s *BookingsService) confirmTx(ctx context.Context, tx pgx.Tx, id int64) (*messaging.BookingStatusChangedEvent, error) {
+func (s *BookingsService) confirmTx(ctx context.Context, tx pgx.Tx, id int64) (*messaging.BookingStatusChangedEvent, *notification.SendNotificationRequest, error) {
 	changedAt := time.Now().UTC()
 	booking, err := s.repo.GetByIDTx(ctx, tx, id)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if booking.Status() == models.BookingStatusCancellationPending {
@@ -292,7 +304,7 @@ func (s *BookingsService) confirmTx(ctx context.Context, tx pgx.Tx, id int64) (*
 	reason := "confirm from Catalog"
 	initiator := InitiatorSystem
 	if err := booking.Confirm(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	entry, err := models.NewBookingHistory(
 		booking.ID(),
@@ -303,13 +315,13 @@ func (s *BookingsService) confirmTx(ctx context.Context, tx pgx.Tx, id int64) (*
 		initiator,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("ошибка создания истории в confirm: %w", err)
+		return nil, nil, fmt.Errorf("ошибка создания истории в confirm: %w", err)
 	}
 	if err := s.repo.UpdateTx(ctx, tx, booking); err != nil {
-		return nil, fmt.Errorf("обновление бронирования: %w", err)
+		return nil, nil, fmt.Errorf("обновление бронирования: %w", err)
 	}
 	if err := s.repo.AddHistoryTx(ctx, tx, entry); err != nil {
-		return nil, fmt.Errorf("добавление в историю в confirm: %w", err)
+		return nil, nil, fmt.Errorf("добавление в историю в confirm: %w", err)
 	}
 
 	event := &messaging.BookingStatusChangedEvent{
@@ -320,7 +332,14 @@ func (s *BookingsService) confirmTx(ctx context.Context, tx pgx.Tx, id int64) (*
 		Reason:    reason,
 	}
 
-	return event, nil
+	notificationReq := &notification.SendNotificationRequest{
+		BookingID: booking.ID(),
+		UserID:    booking.UserID(),
+		Status:    string(booking.Status()),
+		Reason:    reason,
+	}
+
+	return event, notificationReq, nil
 }
 
 func (s *BookingsService) CheckProcessEvent(ctx context.Context, eventID string) (bool, error) {
@@ -489,6 +508,12 @@ func (s *BookingsService) CompleteCancellation(ctx context.Context, id int64) er
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("ошибка при коммите в CompleteCancellation: %w", err)
 	}
+	_ = s.notificationClient.SendNotification(ctx, notification.SendNotificationRequest{
+		BookingID: booking.ID(),
+		UserID:    booking.UserID(),
+		Status:    string(booking.Status()),
+		Reason:    reason,
+	})
 	s.logger.Info("успешная отмена, статус изменен",
 		zap.Int64("id", id),
 		zap.String("status", string(booking.Status())))

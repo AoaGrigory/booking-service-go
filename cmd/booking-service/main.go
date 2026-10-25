@@ -1,6 +1,7 @@
 package main
 
 import (
+	"booking-service/app/clients/notification"
 	"booking-service/app/worker"
 	"context"
 	"errors"
@@ -75,8 +76,15 @@ func main() {
 
 	publisher := messaging.NewPublisher(mqConn, cfg.RabbitMQ.ExchangeName, cfg.RabbitMQ.PublisherExchangeName, cfg.RabbitMQ.DomainEventsExchangeName, logger)
 	outbox := pgstore.NewOutboxRepository(pool)
+	notificationClient := notification.NewClient(
+		cfg.Notification.BaseURL,
+		cfg.Notification.Timeout,
+		cfg.Notification.MaxRetries,
+		cfg.Notification.RetryBaseDelay,
+		logger,
+	)
 	// Сервисный слой
-	bookingsService := service.NewBookingsService(repo, publisher, logger, repo, outbox)
+	bookingsService := service.NewBookingsService(repo, publisher, logger, repo, outbox, notificationClient)
 	bookingsQueries := service.NewBookingsQueries(repo, logger)
 
 	// Catalog-клиент
