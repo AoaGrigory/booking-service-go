@@ -12,21 +12,23 @@ import (
 
 // Publisher публикует сообщения в RabbitMQ.
 type Publisher struct {
-	conn                  *Connection
-	exchangeName          string
-	publisherExchangeName string
-	logger                *zap.Logger
+	conn                     *Connection
+	exchangeName             string
+	publisherExchangeName    string
+	domainEventsExchangeName string
+	logger                   *zap.Logger
 }
 
 // NewPublisher создаёт новый Publisher.
 // exchangeName — exchange для получения ответов (consumer side).
 // publisherExchangeName — exchange для отправки команд в Catalog.
-func NewPublisher(conn *Connection, exchangeName, publisherExchangeName string, logger *zap.Logger) *Publisher {
+func NewPublisher(conn *Connection, exchangeName, publisherExchangeName, domainEventsExchangeName string, logger *zap.Logger) *Publisher {
 	return &Publisher{
-		conn:                  conn,
-		exchangeName:          exchangeName,
-		publisherExchangeName: publisherExchangeName,
-		logger:                logger,
+		conn:                     conn,
+		exchangeName:             exchangeName,
+		publisherExchangeName:    publisherExchangeName,
+		domainEventsExchangeName: domainEventsExchangeName,
+		logger:                   logger,
 	}
 }
 
@@ -58,6 +60,35 @@ func (p *Publisher) Publish(ctx context.Context, routingKey string, message any)
 		zap.String("body", string(body)),
 	)
 
+	return nil
+}
+
+func (p *Publisher) PublishBookingStatusChanged(ctx context.Context, event BookingStatusChangedEvent) error {
+	body, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("сериализация сообщения: %w", err)
+	}
+
+	err = p.conn.Channel().PublishWithContext(
+		ctx,
+		p.domainEventsExchangeName,
+		RoutingKeyBookingStatusChanged,
+		false,
+		false,
+		amqp.Publishing{
+			ContentType:  "application/json",
+			DeliveryMode: amqp.Persistent,
+			Body:         body,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("публикация сообщения(routing key: %s): %w", RoutingKeyBookingStatusChanged, err)
+	}
+
+	p.logger.Debug("сообщение опубликовано",
+		zap.String("RoutingKeyBookingStatusChanged", RoutingKeyBookingStatusChanged),
+		zap.String("body", string(body)),
+	)
 	return nil
 }
 
