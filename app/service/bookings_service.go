@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/jackc/pgx/v5"
+	"github.com/patrickmn/go-cache"
 	"strconv"
 	"time"
 
@@ -30,10 +31,21 @@ type BookingsService struct {
 	processRepo        models.ProcessRepository
 	outboxRepo         models.OutboxRepository
 	notificationClient *notification.Client
+	statsCache         *cache.Cache
+	cacheState         *StatsCacheState
 }
 
 // NewBookingsService создаёт новый BookingsService.
-func NewBookingsService(repo models.BookingRepository, publisher *messaging.Publisher, logger *zap.Logger, processRepo models.ProcessRepository, outboxRepo models.OutboxRepository, notificationClient *notification.Client) *BookingsService {
+func NewBookingsService(
+	repo models.BookingRepository,
+	publisher *messaging.Publisher,
+	logger *zap.Logger,
+	processRepo models.ProcessRepository,
+	outboxRepo models.OutboxRepository,
+	notificationClient *notification.Client,
+	statsCache *cache.Cache,
+	cacheState *StatsCacheState,
+) *BookingsService {
 	return &BookingsService{
 		repo:               repo,
 		publisher:          publisher,
@@ -41,6 +53,8 @@ func NewBookingsService(repo models.BookingRepository, publisher *messaging.Publ
 		processRepo:        processRepo,
 		outboxRepo:         outboxRepo,
 		notificationClient: notificationClient,
+		statsCache:         statsCache,
+		cacheState:         cacheState,
 	}
 }
 
@@ -99,6 +113,8 @@ func (s *BookingsService) Create(ctx context.Context, req dto.CreateBookingReque
 		return 0, fmt.Errorf("ошибка коммита транзакции в Create: %w", err)
 	}
 
+	s.invalidateStatsCache()
+
 	s.logger.Info("бронирование создано",
 		zap.Int64("id", id),
 		zap.Int64("userId", req.UserID),
@@ -144,6 +160,8 @@ func (s *BookingsService) Cancel(ctx context.Context, id int64) error {
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("ошибка при коммите в Cancel: %w", err)
 	}
+
+	s.invalidateStatsCache()
 
 	if err := s.publisher.PublishCancelBookingJob(ctx, messaging.CancelBookingJobCommand{
 		EventId:   messaging.NewMessageID(),
@@ -224,6 +242,9 @@ func (s *BookingsService) CancelFromEvent(ctx context.Context, id int64, eventID
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("ошибка при коммите в CancelFromEvent: %w", err)
 	}
+
+	s.invalidateStatsCache()
+
 	_ = s.notificationClient.SendNotification(ctx, *notificationReq)
 	if err := s.publisher.PublishCancelBookingJob(ctx, messaging.CancelBookingJobCommand{
 		EventId:   messaging.NewMessageID(),
@@ -255,6 +276,9 @@ func (s *BookingsService) Confirm(ctx context.Context, id int64) error {
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("ошибка при коммите в confirm: %w", err)
 	}
+
+	s.invalidateStatsCache()
+
 	_ = s.notificationClient.SendNotification(ctx, *notificationReq)
 
 	s.logger.Info("бронирование подтверждено", zap.Int64("id", id))
@@ -284,6 +308,9 @@ func (s *BookingsService) ConfirmFromEvent(ctx context.Context, id int64, eventI
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("ошибка при коммите в ConfirmFromEvent: %w", err)
 	}
+
+	s.invalidateStatsCache()
+
 	_ = s.notificationClient.SendNotification(ctx, *notificationReq)
 
 	return nil
@@ -377,6 +404,9 @@ func (s *BookingsService) HandleCancelError(ctx context.Context, requestID strin
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("ошибка при коммите в HandleCancelError: %w", err)
 	}
+
+	s.invalidateStatsCache()
+
 	s.logger.Info("Успешный роллбэк, статус возвращен",
 		zap.Int64("id", bookingId))
 
@@ -453,6 +483,8 @@ func (s *BookingsService) HandleCancelErrorFromEvent(ctx context.Context, eventI
 		return fmt.Errorf("ошибка при коммите в HandleCancelErrorFromEvent: %w", err)
 	}
 
+	s.invalidateStatsCache()
+
 	return nil
 }
 
@@ -508,6 +540,9 @@ func (s *BookingsService) CompleteCancellation(ctx context.Context, id int64) er
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("ошибка при коммите в CompleteCancellation: %w", err)
 	}
+
+	s.invalidateStatsCache()
+
 	_ = s.notificationClient.SendNotification(ctx, notification.SendNotificationRequest{
 		BookingID: booking.ID(),
 		UserID:    booking.UserID(),
@@ -535,4 +570,12 @@ func (s *BookingsService) saveToOutboxTx(ctx context.Context, tx pgx.Tx, event *
 		return fmt.Errorf("сохранение события изменения статуса в outbox: %w", err)
 	}
 	return nil
+}
+
+func (s *BookingsService) invalidateStatsCache() {
+	s.cacheState.mu.Lock()
+	defer s.cacheState.mu.Unlock()
+
+	s.cacheState.version++
+	s.statsCache.Flush()
 }

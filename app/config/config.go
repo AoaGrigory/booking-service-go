@@ -15,6 +15,7 @@ type Config struct {
 	Worker       WorkerConfig
 	RabbitMQ     RabbitMQConfig
 	Notification NotificationConfig
+	Cache        CacheConfig
 }
 
 type AppConfig struct {
@@ -70,6 +71,10 @@ type NotificationConfig struct {
 	MaxRetries     int           `envconfig:"NOTIFICATION_MAX_RETRIES" default:"3"`
 	RetryBaseDelay time.Duration `envconfig:"NOTIFICATION_RETRY_BASE_DELAY" default:"1s"`
 }
+type CacheConfig struct {
+	TTL     time.Duration `envconfig:"CACHE_MAX_TTL" default:"5m"`
+	MaxSize int           `envconfig:"CACHE_MAX_SIZE" default:"1000"`
+}
 
 func (p PostgresConfig) DSN() string {
 	return fmt.Sprintf(
@@ -105,6 +110,12 @@ func Load() (*Config, error) {
 	}
 	if cfg.Notification.RetryBaseDelay <= 0 {
 		return nil, fmt.Errorf("RetryBaseDelay должен быть больше нуля")
+	}
+	if cfg.Cache.TTL <= 0 {
+		return nil, fmt.Errorf("TTL в Cache не должен быть меньше нуля")
+	}
+	if cfg.Cache.MaxSize <= 0 {
+		return nil, fmt.Errorf("MaxSize в Cache не должен быть меньше нуля")
 	}
 
 	return &cfg, nil

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/patrickmn/go-cache"
 	"net/http"
 	"os"
 	"os/signal"
@@ -83,9 +84,11 @@ func main() {
 		cfg.Notification.RetryBaseDelay,
 		logger,
 	)
+	statsCache := cache.New(cfg.Cache.TTL, cfg.Cache.TTL)
+	cacheState := &service.StatsCacheState{}
 	// Сервисный слой
-	bookingsService := service.NewBookingsService(repo, publisher, logger, repo, outbox, notificationClient)
-	bookingsQueries := service.NewBookingsQueries(repo, logger)
+	bookingsService := service.NewBookingsService(repo, publisher, logger, repo, outbox, notificationClient, statsCache, cacheState)
+	bookingsQueries := service.NewBookingsQueries(repo, logger, statsCache, cfg.Cache.MaxSize, cacheState)
 
 	// Catalog-клиент
 	catalogClient := catalog.NewClient(
