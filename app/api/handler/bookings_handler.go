@@ -16,6 +16,8 @@ import (
 	"booking-service/app/models"
 )
 
+const maxPageSize = 100
+
 // BookingService определяет командные операции с бронированиями.
 type BookingService interface {
 	Create(ctx context.Context, req dto.CreateBookingRequest) (int64, error)
@@ -28,6 +30,7 @@ type BookingQueries interface {
 	GetByFilter(ctx context.Context, req dto.GetBookingsByFilterRequest) (dto.PagedResponse[dto.BookingResponse], error)
 	GetStatus(ctx context.Context, id int64) (models.BookingStatus, error)
 	GetStatistic(ctx context.Context, dateFrom, dateTo time.Time) (dto.BookingStatistic, error)
+	GetHistory(ctx context.Context, id int64, req dto.GetBookingHistoryRequest) (dto.PagedResponse[dto.BookingHistoryResponse], error)
 }
 
 // BookingsHandler содержит обработчики HTTP-запросов для бронирований.
@@ -156,6 +159,36 @@ func (h *BookingsHandler) GetStatistics(w http.ResponseWriter, r *http.Request) 
 
 }
 
+// GetHistory обрабатывает GET api/bookings/{id}/history
+func (h *BookingsHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
+	bookingId, err := parseIDParam(r)
+	if err != nil {
+		writeProblemDetails(w, http.StatusBadRequest, "неверный id", err.Error())
+		return
+	}
+	page, err := parseIntQuery(r, "page", 1)
+	if err != nil {
+		writeProblemDetails(w, http.StatusBadRequest, "ошибка страницы", err.Error())
+		return
+	}
+	size, err := parseIntQuery(r, "size", 25)
+	if err != nil {
+		writeProblemDetails(w, http.StatusBadRequest, "ошибка размера страницы", err.Error())
+		return
+	}
+	req := dto.GetBookingHistoryRequest{
+		Page: int(page),
+		Size: int(size),
+	}
+	history, err := h.queries.GetHistory(r.Context(), bookingId, req)
+	if err != nil {
+		h.handleServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, history)
+
+}
+
 // handleServiceError маппит доменные ошибки на HTTP-ответы.
 func (h *BookingsHandler) handleServiceError(w http.ResponseWriter, err error) {
 	switch {
@@ -193,6 +226,27 @@ func parseDateParam(r *http.Request, paramName string) (time.Time, error) {
 func parseIDParam(r *http.Request) (int64, error) {
 	idStr := chi.URLParam(r, "id")
 	return strconv.ParseInt(idStr, 10, 64)
+}
+
+func parseIntQuery(r *http.Request, paramName string, def int64) (int64, error) {
+	valueStr := r.URL.Query().Get(paramName)
+	if valueStr == "" {
+		return def, nil
+	}
+	value, err := strconv.ParseInt(valueStr, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	if value <= 0 {
+		return 0, fmt.Errorf("%s должен быть меньше 0", paramName)
+	}
+	if valueStr == "size" {
+		if value >= maxPageSize {
+			return def, fmt.Errorf("%s не должен быть больше 100", paramName)
+		}
+	}
+
+	return value, nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, data any) {

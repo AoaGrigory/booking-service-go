@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"github.com/patrickmn/go-cache"
 	"time"
 
 	"go.uber.org/zap"
@@ -13,15 +14,21 @@ import (
 
 // BookingsQueries обрабатывает запросы (чтение данных) для бронирований.
 type BookingsQueries struct {
-	repo   models.BookingRepository
-	logger *zap.Logger
+	repo         models.BookingRepository
+	logger       *zap.Logger
+	statsCache   *cache.Cache
+	cacheMaxSize int
+	cacheState   *StatsCacheState
 }
 
 // NewBookingsQueries создаёт новый BookingsQueries.
-func NewBookingsQueries(repo models.BookingRepository, logger *zap.Logger) *BookingsQueries {
+func NewBookingsQueries(repo models.BookingRepository, logger *zap.Logger, statsCahce *cache.Cache, cacheMaxSize int, cacheState *StatsCacheState) *BookingsQueries {
 	return &BookingsQueries{
-		repo:   repo,
-		logger: logger,
+		repo:         repo,
+		logger:       logger,
+		statsCache:   statsCahce,
+		cacheMaxSize: cacheMaxSize,
+		cacheState:   cacheState,
 	}
 }
 
@@ -87,6 +94,18 @@ func (q *BookingsQueries) GetByFilter(ctx context.Context, req dto.GetBookingsBy
 }
 
 func (q *BookingsQueries) GetStatistic(ctx context.Context, dateFrom, dateTo time.Time) (dto.BookingStatistic, error) {
+	key := dateFrom.Format(time.RFC3339Nano) + "|" + dateTo.Format(time.RFC3339Nano)
+	q.cacheState.mu.Lock()
+	version := q.cacheState.version
+	value, found := q.statsCache.Get(key)
+	q.cacheState.mu.Unlock()
+	if found {
+		statistic, ok := value.(dto.BookingStatistic)
+		if ok {
+			return statistic, nil
+		}
+	}
+
 	bookingCount, err := q.repo.GetOrdersPerPeriod(ctx, dateFrom, dateTo)
 	if err != nil {
 		return dto.BookingStatistic{}, fmt.Errorf("сервис статистики количества бронирований: %w", err)
@@ -107,13 +126,75 @@ func (q *BookingsQueries) GetStatistic(ctx context.Context, dateFrom, dateTo tim
 		})
 	}
 
-	return dto.BookingStatistic{
+	result := dto.BookingStatistic{
 		DateFrom:        dateFrom,
 		DateTo:          dateTo,
 		CountOrders:     bookingCount,
 		StatusStatistic: statusInfo,
 		TopFive:         topFiveDto,
-	}, nil
+	}
+
+	q.cacheState.mu.Lock()
+	if version == q.cacheState.version {
+		q.statsCache.DeleteExpired()
+		if q.statsCache.ItemCount() < q.cacheMaxSize {
+			q.statsCache.Set(key, result, cache.DefaultExpiration)
+		}
+	}
+	q.cacheState.mu.Unlock()
+
+	return result, nil
+}
+
+func (q *BookingsQueries) GetHistory(ctx context.Context, bookingId int64, req dto.GetBookingHistoryRequest) (dto.PagedResponse[dto.BookingHistoryResponse], error) {
+
+	if _, err := q.repo.GetByID(ctx, bookingId); err != nil {
+		return dto.PagedResponse[dto.BookingHistoryResponse]{}, err
+	}
+	page := req.Page
+	if page <= 0 {
+		page = 1
+	}
+	size := req.Size
+	if size <= 0 {
+		size = 25
+	}
+	offset := (page - 1) * size
+
+	bookingHistory := make([]dto.BookingHistoryResponse, 0)
+	count, err := q.repo.GetBookingHistoryCount(ctx, bookingId)
+	if err != nil {
+		return dto.PagedResponse[dto.BookingHistoryResponse]{}, err
+	}
+
+	booking, err := q.repo.GetBookingHistory(ctx, bookingId, size, offset)
+	if err != nil {
+		return dto.PagedResponse[dto.BookingHistoryResponse]{}, err
+	}
+	for _, val := range booking {
+		ps := val.PreviousStatus()
+		var previousStatus *string
+		if ps != nil {
+			s := string(*ps)
+			previousStatus = &s
+		}
+		historyDto := dto.BookingHistoryResponse{
+			ID:             val.ID(),
+			BookingID:      val.BookingID(),
+			PreviousStatus: previousStatus,
+			NewStatus:      string(val.NewStatus()),
+			ChangedAt:      val.ChangedAt().Format(time.RFC3339),
+			Reason:         val.Reason(),
+			Initiator:      val.Initiator(),
+		}
+		bookingHistory = append(bookingHistory, historyDto)
+	}
+
+	return dto.PagedResponse[dto.BookingHistoryResponse]{
+		Items:      bookingHistory,
+		TotalCount: count,
+		Page:       page,
+		Size:       size}, nil
 }
 
 // mapBookingToResponse конвертирует доменный объект в DTO ответа.

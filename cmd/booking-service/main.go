@@ -1,9 +1,12 @@
 package main
 
 import (
+	"booking-service/app/clients/notification"
+	"booking-service/app/worker"
 	"context"
 	"errors"
 	"fmt"
+	"github.com/patrickmn/go-cache"
 	"net/http"
 	"os"
 	"os/signal"
@@ -61,11 +64,31 @@ func main() {
 	}
 	defer mqConn.Close()
 
-	publisher := messaging.NewPublisher(mqConn, cfg.RabbitMQ.ExchangeName, cfg.RabbitMQ.PublisherExchangeName, logger)
+	err = mqConn.DeclareExchange(cfg.RabbitMQ.DomainEventsExchangeName)
+	if err != nil {
+		logger.Error("не удалось объявить exchange доменных событий", zap.Error(err))
+		os.Exit(1)
+	}
+	_, err = mqConn.DeclareAndBindQueue("booking-domain-events.booking-status-events", cfg.RabbitMQ.DomainEventsExchangeName, messaging.RoutingKeyBookingStatusChanged)
+	if err != nil {
+		logger.Error("не удалось создать или привязать очередь событий изменения статуса", zap.Error(err))
+		os.Exit(1)
+	}
 
+	publisher := messaging.NewPublisher(mqConn, cfg.RabbitMQ.ExchangeName, cfg.RabbitMQ.PublisherExchangeName, cfg.RabbitMQ.DomainEventsExchangeName, logger)
+	outbox := pgstore.NewOutboxRepository(pool)
+	notificationClient := notification.NewClient(
+		cfg.Notification.BaseURL,
+		cfg.Notification.Timeout,
+		cfg.Notification.MaxRetries,
+		cfg.Notification.RetryBaseDelay,
+		logger,
+	)
+	statsCache := cache.New(cfg.Cache.TTL, cfg.Cache.TTL)
+	cacheState := &service.StatsCacheState{}
 	// Сервисный слой
-	bookingsService := service.NewBookingsService(repo, publisher, logger)
-	bookingsQueries := service.NewBookingsQueries(repo, logger)
+	bookingsService := service.NewBookingsService(repo, publisher, logger, repo, outbox, notificationClient, statsCache, cacheState)
+	bookingsQueries := service.NewBookingsQueries(repo, logger, statsCache, cfg.Cache.MaxSize, cacheState)
 
 	// Catalog-клиент
 	catalogClient := catalog.NewClient(
@@ -95,6 +118,13 @@ func main() {
 		logger.Error("не удалось запустить consumer", zap.Error(err))
 		os.Exit(1)
 	}
+
+	//Worker
+	cancellationRetryWorker := worker.NewCancellationRetryWorker(repo, publisher, cfg.Worker.CancellationRetryTimeout, cfg.Worker.CancellationRetryInterval, cfg.Worker.CancellationRetryBatch, logger)
+	go cancellationRetryWorker.Run(ctx)
+
+	outboxWorker := worker.NewOutboxWorker(outbox, publisher, cfg.Worker.OutboxInterval, cfg.Worker.OutboxMaxAttempts, cfg.Worker.OutboxBatchSize, logger)
+	go outboxWorker.Run(ctx)
 
 	// HTTP-хендлеры и роутер
 	bookingsHandler := handler.NewBookingsHandler(bookingsService, bookingsQueries, logger)
